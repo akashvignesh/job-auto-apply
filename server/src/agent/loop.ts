@@ -3,10 +3,10 @@
  *
  * Drives the browser automation agent from the server:
  * 1. Receives a task
- * 2. Calls Vertex AI (via callLLM) with system prompt + tools
+ * 2. Calls Claude (via callLLM / @anthropic-ai/sdk) with system prompt + tools
  * 3. For each tool_use: sends execution request to extension via WebSocket relay
  * 4. Gets tool results back from extension
- * 5. Feeds results back to Vertex AI
+ * 5. Feeds results back to Claude
  * 6. Repeats until end_turn or max steps
  * 7. Returns the final answer
  *
@@ -163,7 +163,8 @@ export async function runAgentLoop(
     totalUsage.outputTokens += response.usage?.output_tokens || 0;
     if (response.model) lastModel = response.model;
 
-    // Add assistant response to conversation (preserve raw Gemini parts for thought signatures)
+    // Add assistant response to conversation.
+    // _rawGeminiParts is only present when Vertex AI (Gemini) is used as an override.
     const assistantMsg: any = { role: "assistant", content: response.content };
     if ((response as any)._rawGeminiParts) {
       assistantMsg._rawGeminiParts = (response as any)._rawGeminiParts;

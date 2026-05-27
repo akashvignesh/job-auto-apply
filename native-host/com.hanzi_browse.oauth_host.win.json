@@ -1,0 +1,10 @@
+﻿{
+  "name": "com.hanzi_browse.oauth_host",
+  "description": "Native bridge for Hanzi Browse (Claude CLI credentials)",
+  "path": "D:\\Code\\Git\\job_apply\\job-auto-apply\\native-host\\native-bridge-win.cmd",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://iklpkemlmbhemkiojndpbhoakgikpmcd/",
+    "chrome-extension://pkjlalggchmgfjnimjlaldnmfnbngcnd/"
+  ]
+}

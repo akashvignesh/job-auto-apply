@@ -110,7 +110,7 @@ async function importCLIViaRelay() {
     expiresAtTimestamp = typeof expiresAt === 'number' ? expiresAt : new Date(expiresAt).getTime();
   }
 
-  // Save credentials to storage
+  // Save credentials AND switch provider to Anthropic so calls actually use Claude
   await chrome.storage.local.set({
     oauthAccessToken: accessToken,
     oauthRefreshToken: refreshToken,
@@ -118,19 +118,49 @@ async function importCLIViaRelay() {
     oauthTokenType: 'Bearer',
     authMethod: 'oauth',
     oauthState: 'authenticated',
-    tokenSource: 'claude_cli'
+    tokenSource: 'claude_cli',
+    // Switch provider — without these the old stored provider (e.g. google) still wins
+    provider: 'anthropic',
+    apiBaseUrl: 'https://api.anthropic.com/v1/messages',
+    model: 'claude-haiku-4-5-20251001',
+    apiKey: '',
   });
 
-  console.log('[OAuth] ✓ Credentials saved to storage');
+  console.log('[OAuth] ✓ Credentials saved to storage (provider switched to Anthropic)');
   return { accessToken, refreshToken, expiresAt: expiresAtTimestamp };
 }
 
 /**
  * Read Claude credentials via native messaging host (legacy path).
+ *
+ * Windows setup: run native-host/install.ps1 once to register the host.
+ * Mac/Linux setup: run native-host/install.sh once.
+ *
+ * Alternatively, start the relay (node server/dist/relay/server.js) and the
+ * importCLIViaRelay() path above will be used instead — no native host needed.
  */
 function importCLIViaNativeHost() {
   return new Promise((resolve, reject) => {
     let port = null;
+    let settled = false;
+
+    function settle(fn) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      if (port) { try { port.disconnect(); } catch (_) {} }
+      fn();
+    }
+
+    // Safety net: if the native host never replies (e.g. onDisconnect fires without
+    // chrome.runtime.lastError on Windows), reject after 6 seconds with a clear message.
+    const timeoutHandle = setTimeout(() => {
+      settle(() => reject(new Error(
+        'Native host did not respond. ' +
+        'Windows: run native-host/install.ps1 in PowerShell once, then reload the extension. ' +
+        'Alternatively start the relay (npm run relay) and try again.'
+      )));
+    }, 6000);
 
     try {
       console.log('[OAuth] Connecting to native host:', NATIVE_HOST_NAME);
@@ -142,35 +172,19 @@ function importCLIViaNativeHost() {
 
         if (message.type === 'cli_credentials') {
           console.log('[OAuth] ✓ CLI credentials received');
-          const { accessToken, refreshToken, expiresAt, subscriptionType } = message.credentials;
+          const { accessToken, refreshToken, expiresAt } = message.credentials;
 
-          // Validate accessToken
           if (!accessToken) {
-            console.error('[OAuth] ✗ No accessToken in credentials');
-            if (port) port.disconnect();
-            reject(new Error('No accessToken found in Claude CLI credentials'));
+            settle(() => reject(new Error('No accessToken found in Claude CLI credentials')));
             return;
           }
 
-          console.log('[OAuth] Access token:', accessToken.substring(0, 20) + '...');
-          console.log('[OAuth] Refresh token:', refreshToken ? refreshToken.substring(0, 20) + '...' : 'none');
-          console.log('[OAuth] Subscription type:', subscriptionType || 'unknown');
-
-          // Handle expiresAt (should be a timestamp in milliseconds)
           let expiresAtTimestamp = null;
           if (expiresAt) {
             expiresAtTimestamp = typeof expiresAt === 'number' ? expiresAt : new Date(expiresAt).getTime();
-            if (!isNaN(expiresAtTimestamp)) {
-              console.log('[OAuth] Expires at:', new Date(expiresAtTimestamp).toISOString());
-            } else {
-              console.warn('[OAuth] Invalid expiresAt value, tokens will not auto-refresh');
-              expiresAtTimestamp = null;
-            }
-          } else {
-            console.log('[OAuth] No expiresAt field (tokens may not expire)');
+            if (isNaN(expiresAtTimestamp)) expiresAtTimestamp = null;
           }
 
-          // Save credentials to storage
           await chrome.storage.local.set({
             oauthAccessToken: accessToken,
             oauthRefreshToken: refreshToken,
@@ -178,32 +192,40 @@ function importCLIViaNativeHost() {
             oauthTokenType: 'Bearer',
             authMethod: 'oauth',
             oauthState: 'authenticated',
-            tokenSource: 'claude_cli'
+            tokenSource: 'claude_cli',
+            // Switch provider so calls actually go to Claude, not whatever was stored before
+            provider: 'anthropic',
+            apiBaseUrl: 'https://api.anthropic.com/v1/messages',
+            model: 'claude-haiku-4-5-20251001',
+            apiKey: '',
           });
 
-          console.log('[OAuth] ✓ Credentials saved to storage');
-
-          if (port) port.disconnect();
-          resolve({ accessToken, refreshToken, expiresAt: expiresAtTimestamp });
+          console.log('[OAuth] ✓ Credentials saved to storage (provider switched to Anthropic)');
+          settle(() => resolve({ accessToken, refreshToken, expiresAt: expiresAtTimestamp }));
 
         } else if (message.type === 'credentials_not_found') {
-          console.error('[OAuth] ✗ CLI credentials not found');
-          console.error('[OAuth]', message.error);
-          if (port) port.disconnect();
-          reject(new Error(message.error));
+          settle(() => reject(new Error(message.error || 'Claude credentials not found. Run: claude login')));
 
         } else if (message.type === 'error') {
-          console.error('[OAuth] ✗ Error:', message.error);
-          if (port) port.disconnect();
-          reject(new Error(message.error));
+          settle(() => reject(new Error(message.error || 'Native host error')));
         }
       });
 
       port.onDisconnect.addListener(() => {
-        console.log('[OAuth] Native host disconnected');
-        if (chrome.runtime.lastError) {
-          console.error('[OAuth] ✗ Disconnect error:', chrome.runtime.lastError.message);
-          reject(new Error(`Native host error: ${chrome.runtime.lastError.message}`));
+        // chrome.runtime.lastError MUST be read synchronously here
+        const err = chrome.runtime.lastError;
+        console.log('[OAuth] Native host disconnected', err?.message || '(no error)');
+        if (err) {
+          settle(() => reject(new Error(
+            `Native host not found. ` +
+            `Windows: run native-host/install.ps1 in PowerShell once, then reload the extension. ` +
+            `(${err.message})`
+          )));
+        } else {
+          // Disconnected without an error and without sending credentials.
+          // This is an unexpected clean disconnect — treat as failure so the
+          // Promise doesn't hang forever.
+          settle(() => reject(new Error('Native host disconnected unexpectedly without sending credentials')));
         }
       });
 
@@ -211,9 +233,7 @@ function importCLIViaNativeHost() {
       port.postMessage({ type: 'read_cli_credentials' });
 
     } catch (error) {
-      console.error('[OAuth] ✗ Failed to connect:', error);
-      if (port) port.disconnect();
-      reject(new Error(`Failed to connect: ${error.message}`));
+      settle(() => reject(new Error(`Failed to connect to native host: ${error.message}`)));
     }
   });
 }

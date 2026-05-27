@@ -144,6 +144,8 @@ export function SettingsModal({ config, onClose }) {
               setNewCustomModel={setNewCustomModel}
               onAddCustomModel={handleAddCustomModel}
               formError={formError}
+              fetchGoogleModels={config.fetchGoogleModels}
+              googleFetchedModels={config.googleFetchedModels}
             />
           )}
 
@@ -180,7 +182,21 @@ function ConnectionsTab({
   setNewCustomModel,
   onAddCustomModel,
   formError,
+  fetchGoogleModels,
+  googleFetchedModels,
 }) {
+  const [fetchStatus, setFetchStatus] = useState(null);
+  const [fetching, setFetching] = useState(false);
+
+  const handleFetchGoogleModels = async () => {
+    const key = localKeys.google;
+    if (!key) return;
+    setFetching(true);
+    setFetchStatus(null);
+    const result = await fetchGoogleModels(key);
+    setFetching(false);
+    setFetchStatus(result);
+  };
   return (
     <div class="tab-content">
       {/* Managed service */}
@@ -264,6 +280,32 @@ function ConnectionsTab({
               onInput={(e) => setLocalKeys({ ...localKeys, [selectedProvider]: e.target.value })}
               placeholder="Enter API key..."
             />
+          )}
+          {selectedProvider === 'google' && (
+            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                class="btn btn-secondary btn-sm"
+                onClick={handleFetchGoogleModels}
+                disabled={fetching || !localKeys.google}
+              >
+                {fetching ? 'Fetching…' : 'Fetch available models'}
+              </button>
+              {fetchStatus?.success && (
+                <span style={{ fontSize: '0.8em', color: 'var(--color-success, #2e7d32)' }}>
+                  ✓ {fetchStatus.count} models loaded
+                </span>
+              )}
+              {fetchStatus?.error && (
+                <span style={{ fontSize: '0.8em', color: 'var(--color-error, #c62828)' }}>
+                  {fetchStatus.error}
+                </span>
+              )}
+              {!fetchStatus && googleFetchedModels?.length > 0 && (
+                <span style={{ fontSize: '0.8em', opacity: 0.6 }}>
+                  {googleFetchedModels.length} models cached
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}

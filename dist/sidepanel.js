@@ -30,6 +30,7 @@ function useConfig() {
   const [codexStatus, setCodexStatus] = d({ isAuthenticated: false });
   const [isLoading, setIsLoading] = d(true);
   const [onboarding, setOnboarding] = d({ completed: true, primaryMode: null });
+  const [googleFetchedModels, setGoogleFetchedModels] = d([]);
   y(() => {
     loadConfig();
   }, []);
@@ -44,12 +45,15 @@ function useConfig() {
       setBuiltInSkills(config.builtInSkills || []);
       const obState = await chrome.storage.local.get([
         "onboarding_completed",
-        "onboarding_primary_mode"
+        "onboarding_primary_mode",
+        "googleFetchedModels"
       ]);
       setOnboarding({
         completed: obState.onboarding_completed !== false,
         primaryMode: obState.onboarding_primary_mode || null
       });
+      const cachedGoogleModels = obState.googleFetchedModels || [];
+      setGoogleFetchedModels(cachedGoogleModels);
       const oauth = await chrome.runtime.sendMessage({ type: "GET_OAUTH_STATUS" });
       setOauthStatus(oauth || { isOAuthEnabled: false, isAuthenticated: false });
       const codex = await chrome.runtime.sendMessage({ type: "GET_CODEX_STATUS" });
@@ -58,7 +62,8 @@ function useConfig() {
         config.providerKeys || {},
         config.customModels || [],
         oauth,
-        codex
+        codex,
+        cachedGoogleModels
       );
       setIsLoading(false);
     } catch (error) {
@@ -66,7 +71,7 @@ function useConfig() {
       setIsLoading(false);
     }
   }, []);
-  const buildAvailableModels = q(async (keys, custom, oauth, codex) => {
+  const buildAvailableModels = q(async (keys, custom, oauth, codex, fetchedGoogleModels = []) => {
     const models = [];
     const hasOAuth = (oauth == null ? void 0 : oauth.isOAuthEnabled) && (oauth == null ? void 0 : oauth.isAuthenticated);
     const hasCodexOAuth = codex == null ? void 0 : codex.isAuthenticated;
@@ -144,7 +149,8 @@ function useConfig() {
           }
         }
       } else if (hasApiKey) {
-        for (const model of provider.models) {
+        const modelList = providerId === "google" && fetchedGoogleModels.length > 0 ? fetchedGoogleModels : provider.models;
+        for (const model of modelList) {
           models.push({
             name: `${model.name} (API)`,
             provider: providerId,
@@ -168,6 +174,31 @@ function useConfig() {
     }
     setAvailableModels(models);
   }, []);
+  const fetchGoogleModels = q(async (apiKey) => {
+    var _a;
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=200`
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(((_a = err == null ? void 0 : err.error) == null ? void 0 : _a.message) || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const models = (data.models || []).filter((m) => {
+        var _a2;
+        return (_a2 = m.supportedGenerationMethods) == null ? void 0 : _a2.includes("generateContent");
+      }).map((m) => ({
+        id: m.name.replace("models/", ""),
+        name: m.displayName || m.name.replace("models/", "")
+      })).sort((a, b) => a.name.localeCompare(b.name));
+      setGoogleFetchedModels(models);
+      await chrome.storage.local.set({ googleFetchedModels: models });
+      return { success: true, count: models.length };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }, []);
   const saveConfig = q(async (overrideKeys) => {
     const keysToSave = overrideKeys || providerKeys;
     await chrome.runtime.sendMessage({
@@ -182,8 +213,8 @@ function useConfig() {
     if (overrideKeys) {
       setProviderKeys(overrideKeys);
     }
-    await buildAvailableModels(keysToSave, customModels, oauthStatus, codexStatus);
-  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, codexStatus, buildAvailableModels]);
+    await buildAvailableModels(keysToSave, customModels, oauthStatus, codexStatus, googleFetchedModels);
+  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, codexStatus, googleFetchedModels, buildAvailableModels]);
   const selectModel = q(async (index) => {
     setCurrentModelIndex(index);
     const model = availableModels[index];
@@ -290,7 +321,9 @@ function useConfig() {
     importCLI,
     logoutCLI,
     importCodex,
-    logoutCodex
+    logoutCodex,
+    fetchGoogleModels,
+    googleFetchedModels
   };
 }
 function useChat() {
@@ -1165,7 +1198,9 @@ function SettingsModal({ config, onClose }) {
           newCustomModel,
           setNewCustomModel,
           onAddCustomModel: handleAddCustomModel,
-          formError
+          formError,
+          fetchGoogleModels: config.fetchGoogleModels,
+          googleFetchedModels: config.googleFetchedModels
         }
       ),
       activeTab === "skills" && /* @__PURE__ */ u(
@@ -1197,8 +1232,21 @@ function ConnectionsTab({
   newCustomModel,
   setNewCustomModel,
   onAddCustomModel,
-  formError
+  formError,
+  fetchGoogleModels,
+  googleFetchedModels
 }) {
+  const [fetchStatus, setFetchStatus] = d(null);
+  const [fetching, setFetching] = d(false);
+  const handleFetchGoogleModels = async () => {
+    const key = localKeys.google;
+    if (!key) return;
+    setFetching(true);
+    setFetchStatus(null);
+    const result = await fetchGoogleModels(key);
+    setFetching(false);
+    setFetchStatus(result);
+  };
   return /* @__PURE__ */ u("div", { class: "tab-content", children: [
     /* @__PURE__ */ u("div", { class: "provider-section", children: [
       /* @__PURE__ */ u("h4", { children: "Hanzi Managed" }),
@@ -1279,7 +1327,28 @@ function ConnectionsTab({
           onInput: (e) => setLocalKeys({ ...localKeys, [selectedProvider]: e.target.value }),
           placeholder: "Enter API key..."
         }
-      )
+      ),
+      selectedProvider === "google" && /* @__PURE__ */ u("div", { style: { marginTop: "8px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }, children: [
+        /* @__PURE__ */ u(
+          "button",
+          {
+            class: "btn btn-secondary btn-sm",
+            onClick: handleFetchGoogleModels,
+            disabled: fetching || !localKeys.google,
+            children: fetching ? "Fetching…" : "Fetch available models"
+          }
+        ),
+        (fetchStatus == null ? void 0 : fetchStatus.success) && /* @__PURE__ */ u("span", { style: { fontSize: "0.8em", color: "var(--color-success, #2e7d32)" }, children: [
+          "✓ ",
+          fetchStatus.count,
+          " models loaded"
+        ] }),
+        (fetchStatus == null ? void 0 : fetchStatus.error) && /* @__PURE__ */ u("span", { style: { fontSize: "0.8em", color: "var(--color-error, #c62828)" }, children: fetchStatus.error }),
+        !fetchStatus && (googleFetchedModels == null ? void 0 : googleFetchedModels.length) > 0 && /* @__PURE__ */ u("span", { style: { fontSize: "0.8em", opacity: 0.6 }, children: [
+          googleFetchedModels.length,
+          " models cached"
+        ] })
+      ] })
     ] }),
     /* @__PURE__ */ u("details", { class: "advanced-section", style: { marginTop: "16px" }, children: [
       /* @__PURE__ */ u("summary", { children: "Custom endpoint (Ollama, LM Studio, etc.)" }),
@@ -1447,6 +1516,17 @@ const AGENT_EXAMPLES = [
 ];
 function EmptyState({ onSelectExample, primaryMode }) {
   const examples = primaryMode === "agent" ? AGENT_EXAMPLES : HUMAN_EXAMPLES;
+  const handleUseTemplate = async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL("prompt-template.txt"));
+      if (res.ok) {
+        const txt = await res.text();
+        onSelectExample(txt);
+      }
+    } catch (err) {
+      console.warn("Could not load prompt template", err);
+    }
+  };
   return /* @__PURE__ */ u("div", { class: "empty-state", children: [
     /* @__PURE__ */ u("div", { class: "empty-icon", children: /* @__PURE__ */ u("svg", { viewBox: "0 0 24 24", fill: "none", xmlns: "http://www.w3.org/2000/svg", children: [
       /* @__PURE__ */ u("rect", { width: "24", height: "24", rx: "6", fill: "currentColor" }),
@@ -1454,15 +1534,25 @@ function EmptyState({ onSelectExample, primaryMode }) {
     ] }) }),
     /* @__PURE__ */ u("h2", { children: "What should we browse?" }),
     /* @__PURE__ */ u("p", { children: "Tell Hanzi what to do and it will take over the browser." }),
-    /* @__PURE__ */ u("div", { class: "empty-examples", children: examples.map((example, i) => /* @__PURE__ */ u(
-      "button",
-      {
-        class: "example-chip",
-        onClick: () => onSelectExample(example),
-        children: example
-      },
-      i
-    )) })
+    /* @__PURE__ */ u("div", { class: "empty-examples", children: [
+      examples.map((example, i) => /* @__PURE__ */ u(
+        "button",
+        {
+          class: "example-chip",
+          onClick: () => onSelectExample(example),
+          children: example
+        },
+        i
+      )),
+      /* @__PURE__ */ u(
+        "button",
+        {
+          class: "example-chip template-chip",
+          onClick: handleUseTemplate,
+          children: "Use template"
+        }
+      )
+    ] })
   ] });
 }
 function App() {

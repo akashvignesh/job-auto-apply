@@ -1,0 +1,9 @@
+Please perform the following steps using the browser and report results:
+
+1. Open the current active tab and identify the page title and URL.
+2. If this is a sign-in protected page, note that authentication is required.
+3. Search the page for any headings and list them in order.
+4. If there are forms, list input field names and types.
+5. Summarize the page in 3 concise bullet points.
+
+Be concise and include any detected actionable items.

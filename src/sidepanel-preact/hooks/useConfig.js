@@ -39,6 +39,7 @@ export function useConfig() {
   const [codexStatus, setCodexStatus] = useState({ isAuthenticated: false });
   const [isLoading, setIsLoading] = useState(true);
   const [onboarding, setOnboarding] = useState({ completed: true, primaryMode: null });
+  const [googleFetchedModels, setGoogleFetchedModels] = useState([]);
 
   // Load config on mount
   useEffect(() => {
@@ -55,14 +56,16 @@ export function useConfig() {
       setUserSkills(config.userSkills || []);
       setBuiltInSkills(config.builtInSkills || []);
 
-      // Load onboarding state
+      // Load onboarding state + cached Google models
       const obState = await chrome.storage.local.get([
-        'onboarding_completed', 'onboarding_primary_mode'
+        'onboarding_completed', 'onboarding_primary_mode', 'googleFetchedModels'
       ]);
       setOnboarding({
         completed: obState.onboarding_completed !== false,
         primaryMode: obState.onboarding_primary_mode || null,
       });
+      const cachedGoogleModels = obState.googleFetchedModels || [];
+      setGoogleFetchedModels(cachedGoogleModels);
 
       // Get OAuth statuses
       const oauth = await chrome.runtime.sendMessage({ type: 'GET_OAUTH_STATUS' });
@@ -76,7 +79,8 @@ export function useConfig() {
         config.providerKeys || {},
         config.customModels || [],
         oauth,
-        codex
+        codex,
+        cachedGoogleModels
       );
 
       setIsLoading(false);
@@ -86,7 +90,7 @@ export function useConfig() {
     }
   }, []);
 
-  const buildAvailableModels = useCallback(async (keys, custom, oauth, codex) => {
+  const buildAvailableModels = useCallback(async (keys, custom, oauth, codex, fetchedGoogleModels = []) => {
     const models = [];
     const hasOAuth = oauth?.isOAuthEnabled && oauth?.isAuthenticated;
     const hasCodexOAuth = codex?.isAuthenticated;
@@ -173,7 +177,10 @@ export function useConfig() {
           }
         }
       } else if (hasApiKey) {
-        for (const model of provider.models) {
+        const modelList = (providerId === 'google' && fetchedGoogleModels.length > 0)
+          ? fetchedGoogleModels
+          : provider.models;
+        for (const model of modelList) {
           models.push({
             name: `${model.name} (API)`,
             provider: providerId,
@@ -201,6 +208,31 @@ export function useConfig() {
     setAvailableModels(models);
   }, []);
 
+  const fetchGoogleModels = useCallback(async (apiKey) => {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=200`
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      const models = (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => ({
+          id: m.name.replace('models/', ''),
+          name: m.displayName || m.name.replace('models/', ''),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setGoogleFetchedModels(models);
+      await chrome.storage.local.set({ googleFetchedModels: models });
+      return { success: true, count: models.length };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }, []);
+
   const saveConfig = useCallback(async (overrideKeys) => {
     const keysToSave = overrideKeys || providerKeys;
     await chrome.runtime.sendMessage({
@@ -216,8 +248,8 @@ export function useConfig() {
       setProviderKeys(overrideKeys);
     }
     // Rebuild model list so newly added API keys show their models immediately
-    await buildAvailableModels(keysToSave, customModels, oauthStatus, codexStatus);
-  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, codexStatus, buildAvailableModels]);
+    await buildAvailableModels(keysToSave, customModels, oauthStatus, codexStatus, googleFetchedModels);
+  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, codexStatus, googleFetchedModels, buildAvailableModels]);
 
   const selectModel = useCallback(async (index) => {
     setCurrentModelIndex(index);
@@ -340,5 +372,7 @@ export function useConfig() {
     logoutCLI,
     importCodex,
     logoutCodex,
+    fetchGoogleModels,
+    googleFetchedModels,
   };
 }

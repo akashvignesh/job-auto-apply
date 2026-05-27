@@ -35,10 +35,48 @@ export const PROVIDERS = {
   google: {
     name: 'Google (Gemini)',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
+    // Fallback list — "Fetch available models" in Settings replaces this with live API data
     models: [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+      // ── Stable text models ────────────────────────────────────────
+      { id: 'gemini-2.5-flash',                          name: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',                            name: 'Gemini 2.5 Pro' },
+      { id: 'gemini-2.5-flash-lite',                     name: 'Gemini 2.5 Flash Lite' },
+      { id: 'gemini-2.0-flash',                          name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-2.0-flash-lite',                     name: 'Gemini 2.0 Flash Lite' },
+      { id: 'gemini-flash-latest',                       name: 'Gemini Flash Latest' },
+      { id: 'gemini-flash-lite-latest',                  name: 'Gemini Flash Lite Latest' },
+      { id: 'gemini-pro-latest',                         name: 'Gemini Pro Latest' },
+      // ── Gemini 3.x preview ────────────────────────────────────────
+      { id: 'gemini-3.5-flash',                          name: 'Gemini 3.5 Flash' },
+      { id: 'gemini-3.1-pro-preview',                    name: 'Gemini 3.1 Pro Preview' },
+      { id: 'gemini-3.1-pro-preview-customtools',        name: 'Gemini 3.1 Pro Preview (Custom Tools)' },
+      { id: 'gemini-3.1-flash-lite',                     name: 'Gemini 3.1 Flash Lite' },
+      { id: 'gemini-3.1-flash-lite-preview',             name: 'Gemini 3.1 Flash Lite Preview' },
+      { id: 'gemini-3-pro-preview',                      name: 'Gemini 3 Pro Preview' },
+      { id: 'gemini-3-flash-preview',                    name: 'Gemini 3 Flash Preview' },
+      // ── Multi-modal / Image ───────────────────────────────────────
+      { id: 'gemini-2.5-flash-image',                    name: 'Gemini 2.5 Flash Image (Nano Banana)' },
+      { id: 'gemini-3-pro-image-preview',                name: 'Gemini 3 Pro Image (Nano Banana Pro)' },
+      { id: 'gemini-3.1-flash-image-preview',            name: 'Gemini 3.1 Flash Image (Nano Banana 2)' },
+      // ── TTS ───────────────────────────────────────────────────────
+      { id: 'gemini-2.5-flash-preview-tts',              name: 'Gemini 2.5 Flash TTS' },
+      { id: 'gemini-2.5-pro-preview-tts',                name: 'Gemini 2.5 Pro TTS' },
+      { id: 'gemini-3.1-flash-tts-preview',              name: 'Gemini 3.1 Flash TTS Preview' },
+      // ── Audio / Music ─────────────────────────────────────────────
+      { id: 'lyria-3-clip-preview',                      name: 'Lyria 3 Clip Preview' },
+      { id: 'lyria-3-pro-preview',                       name: 'Lyria 3 Pro Preview' },
+      // ── Gemma ─────────────────────────────────────────────────────
+      { id: 'gemma-4-26b-a4b-it',                        name: 'Gemma 4 26B' },
+      { id: 'gemma-4-31b-it',                            name: 'Gemma 4 31B' },
+      // ── Specialized ───────────────────────────────────────────────
+      { id: 'gemini-robotics-er-1.5-preview',            name: 'Gemini Robotics ER 1.5 Preview' },
+      { id: 'gemini-robotics-er-1.6-preview',            name: 'Gemini Robotics ER 1.6 Preview' },
+      { id: 'gemini-2.5-computer-use-preview-10-2025',   name: 'Computer Use Preview' },
+      // ── Agents ───────────────────────────────────────────────────
+      { id: 'antigravity-preview-05-2026',               name: 'Antigravity Agent Preview' },
+      { id: 'deep-research-pro-preview-12-2025',         name: 'Deep Research Pro Preview' },
+      { id: 'deep-research-preview-04-2026',             name: 'Deep Research Preview' },
+      { id: 'deep-research-max-preview-04-2026',         name: 'Deep Research Max Preview' },
     ],
   },
   vertex: {
@@ -49,6 +87,27 @@ export const PROVIDERS = {
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+    ],
+  },
+  huggingface: {
+    name: 'HuggingFace',
+    baseUrl: 'https://api-inference.huggingface.co/v1/chat/completions',
+    models: [
+      // ── Gemma 4 (Google) — verified IDs from Google AI docs ──────
+      { id: 'google/gemma-4-26B-A4B-it', name: 'Gemma 4 26B (A4B)' },
+      { id: 'google/gemma-4-31B-it',     name: 'Gemma 4 31B' },
+      { id: 'google/gemma-4-E4B-it',     name: 'Gemma 4 E4B' },
+      { id: 'google/gemma-4-E2B-it',     name: 'Gemma 4 E2B' },
+      // ── Llama 4 (Meta) ───────────────────────────────────────────
+      { id: 'meta-llama/Llama-4-Scout-17B-16E-Instruct', name: 'Llama 4 Scout 17B' },
+      { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', name: 'Llama 4 Maverick 17B' },
+      // ── Qwen 3 (Alibaba) ─────────────────────────────────────────
+      { id: 'Qwen/Qwen3-8B',             name: 'Qwen3 8B' },
+      { id: 'Qwen/Qwen3-30B-A3B',        name: 'Qwen3 30B MoE' },
+      { id: 'Qwen/Qwen3-235B-A22B',      name: 'Qwen3 235B MoE' },
+      // ── Mistral ──────────────────────────────────────────────────
+      { id: 'mistralai/Mistral-7B-Instruct-v0.3', name: 'Mistral 7B Instruct' },
+      { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' },
     ],
   },
   openrouter: {

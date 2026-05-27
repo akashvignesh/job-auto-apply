@@ -11,12 +11,17 @@ import { getAccessToken, refreshAccessToken } from './oauth-manager.js';
 import { proxyApiCall, isRelayConnected } from './relay-client.js';
 
 // Configuration (loaded from storage)
+// Default: Claude via Claude Code CLI OAuth credentials (reads ~/.claude/.credentials.json).
+// The relay proxy (ws://localhost:7862) injects the impersonation headers that browsers
+// cannot set due to CORS (Authorization: Bearer, user-agent: claude-code/..., x-app: cli).
+// To override, change these values in the extension settings UI.
 let config = {
-  apiBaseUrl: 'http://192.168.1.185:8000/v1/chat/completions',
-  apiKey: 'not-needed',
-  model: './gemma4-e4b',
-  provider: 'openai',
-  maxTokens: 2048,
+  apiBaseUrl: 'https://api.anthropic.com/v1/messages',
+  apiKey: '',           // empty — OAuth supplies the token
+  model: 'claude-haiku-4-5-20251001',
+  provider: 'anthropic',
+  authMethod: 'oauth',  // use Claude Code CLI credentials from ~/.claude/.credentials.json
+  maxTokens: 8192,
   maxSteps: 0,
   agentDefaultConfig: null,
 };
@@ -136,8 +141,9 @@ export function resolveAgentDefaultConfig(baseConfig = config) {
     };
   }
 
+  // Fallback: honour whatever the user has configured
   return {
-    provider: baseConfig.provider || 'openai',
+    provider: baseConfig.provider || 'anthropic',
     model: baseConfig.model,
     apiBaseUrl: baseConfig.apiBaseUrl,
     apiKey: baseConfig.apiKey,

@@ -1538,6 +1538,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Open status page on first install
 chrome.runtime.onInstalled.addListener(async (details) => {
+  // Seed Gemini config on install or update if not already configured
+  const stored = await chrome.storage.local.get(['providerKeys']);
+  if (!stored.providerKeys?.google) {
+    await chrome.storage.local.set({
+      apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
+      apiKey: 'AIzaSyAF8q6VTEsqkpZ4KMDwAwfNMuZ9RM0UekI',
+      model: 'gemini-2.5-flash',
+      provider: 'google',
+      providerKeys: { ...(stored.providerKeys || {}), google: 'AIzaSyAF8q6VTEsqkpZ4KMDwAwfNMuZ9RM0UekI' },
+    });
+  }
+
   if (details.reason === 'install') {
     // Check if credentials already exist (e.g. user ran CLI setup first)
     const config = await chrome.storage.local.get(['providerKeys', 'customModels']);

@@ -1,226 +1,147 @@
 /**
- * LLM Client for MCP Server
+ * LLM Client — Claude Code CLI mode
  *
- * Routes between providers:
- * - Vertex AI (Gemini) — managed mode, server-side agent loop
- * - Anthropic — legacy local mode, Claude Code OAuth
+ * Uses the official @anthropic-ai/sdk instead of raw fetch.
+ * Credentials are resolved from:
+ *   1. ANTHROPIC_API_KEY env var  → direct API key
+ *   2. ~/.claude/.credentials.json → Claude Code OAuth (reuses `claude login` session)
+ *   3. macOS Keychain               → Claude Code OAuth
  *
- * Canonical internal format is Anthropic content blocks.
- * Vertex provider converts at the API boundary.
+ * Vertex AI (Gemini) is kept as an optional override: set VERTEX_SERVICE_ACCOUNT_JSON
+ * env var to re-enable it. Otherwise the project runs entirely on Claude.
  */
+import Anthropic from "@anthropic-ai/sdk";
 import { resolveCredentials, refreshClaudeToken, saveClaudeCredentials, } from "./credentials.js";
 import { callVertexLLM, isVertexConfigured } from "./vertex.js";
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+// ─── Config ─────────────────────────────────────────────────────────────────
+/** Default model — Claude Haiku 4.5 is fast and cheap; swap to sonnet/opus as needed */
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const DEFAULT_MAX_TOKENS = 16384;
-// Cached credential source — refreshed on 401
 let cachedSource = null;
 function getSource() {
-    if (!cachedSource) {
+    if (!cachedSource)
         cachedSource = resolveCredentials();
-    }
     if (!cachedSource) {
         throw new Error("No credentials found. Set ANTHROPIC_API_KEY or run `claude login`");
     }
     return cachedSource;
 }
 /**
- * Build request headers based on credential type.
+ * Build an Anthropic SDK client from a resolved credential source.
+ * OAuth tokens are passed as Bearer auth; API keys use the standard header.
  */
-function buildHeaders(source) {
+function buildClient(source) {
     if (source.type === "api_key") {
-        return {
-            "Content-Type": "application/json",
-            "x-api-key": source.apiKey,
-            "anthropic-version": "2023-06-01",
-        };
+        return new Anthropic({ apiKey: source.apiKey });
     }
     if (source.type === "claude_oauth") {
-        return {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${source.credentials.accessToken}`,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-            "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
-            "x-app": "cli",
-            "user-agent": "claude-code/2.1.29 (Darwin; arm64)",
-        };
+        // Use Claude Code's OAuth access token.
+        // The extra headers match what the Claude Code CLI sends to Anthropic.
+        return new Anthropic({
+            authToken: source.credentials.accessToken,
+            defaultHeaders: {
+                "anthropic-dangerous-direct-browser-access": "true",
+                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
+                "x-app": "cli",
+                "user-agent": "claude-code/2.1.29",
+            },
+        });
     }
-    throw new Error("Codex credentials are not supported for direct LLM calls from MCP server");
+    throw new Error("Codex credentials are not supported in Claude Code CLI mode. " +
+        "Set ANTHROPIC_API_KEY or run `claude login` instead.");
 }
+// ─── Main call ───────────────────────────────────────────────────────────────
 /**
- * Parse SSE stream and extract the final response.
- */
-async function parseSSEStream(response, onText, signal) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    // Accumulate content blocks from streaming events
-    const contentBlocks = [];
-    let currentBlockIndex = -1;
-    let stopReason = "";
-    let usage = { input_tokens: 0, output_tokens: 0 };
-    try {
-        while (true) {
-            if (signal?.aborted) {
-                reader.cancel();
-                throw new DOMException("Aborted", "AbortError");
-            }
-            const { done, value } = await reader.read();
-            if (done)
-                break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop();
-            for (const line of lines) {
-                if (!line.startsWith("data: "))
-                    continue;
-                const data = line.slice(6);
-                if (data === "[DONE]")
-                    continue;
-                let event;
-                try {
-                    event = JSON.parse(data);
-                }
-                catch {
-                    continue;
-                }
-                switch (event.type) {
-                    case "content_block_start":
-                        currentBlockIndex = event.index;
-                        if (event.content_block.type === "tool_use") {
-                            contentBlocks[currentBlockIndex] = {
-                                type: "tool_use",
-                                id: event.content_block.id,
-                                name: event.content_block.name,
-                                input: {},
-                            };
-                        }
-                        else if (event.content_block.type === "text") {
-                            contentBlocks[currentBlockIndex] = {
-                                type: "text",
-                                text: "",
-                            };
-                        }
-                        break;
-                    case "content_block_delta":
-                        if (event.delta.type === "text_delta") {
-                            const block = contentBlocks[event.index];
-                            if (block) {
-                                block.text += event.delta.text;
-                                onText?.(event.delta.text);
-                            }
-                        }
-                        else if (event.delta.type === "input_json_delta") {
-                            // Accumulate JSON string for tool input — parse on content_block_stop
-                            const block = contentBlocks[event.index];
-                            if (block) {
-                                block._rawInput = (block._rawInput || "") + event.delta.partial_json;
-                            }
-                        }
-                        break;
-                    case "content_block_stop": {
-                        const block = contentBlocks[event.index];
-                        if (block?.type === "tool_use") {
-                            if (block._rawInput) {
-                                try {
-                                    block.input = JSON.parse(block._rawInput);
-                                }
-                                catch {
-                                    block.input = {};
-                                }
-                            }
-                            delete block._rawInput;
-                        }
-                        break;
-                    }
-                    case "message_delta":
-                        if (event.delta.stop_reason) {
-                            stopReason = event.delta.stop_reason;
-                        }
-                        if (event.usage) {
-                            usage.output_tokens = event.usage.output_tokens || usage.output_tokens;
-                        }
-                        break;
-                    case "message_start":
-                        if (event.message?.usage) {
-                            usage.input_tokens = event.message.usage.input_tokens || 0;
-                        }
-                        break;
-                }
-            }
-        }
-    }
-    finally {
-        reader.releaseLock();
-    }
-    // Safety: strip any leftover _rawInput from tool_use blocks
-    for (const block of contentBlocks) {
-        if (block._rawInput !== undefined) {
-            delete block._rawInput;
-        }
-    }
-    return { content: contentBlocks, stop_reason: stopReason, usage };
-}
-/**
- * Call the LLM. Routes to Vertex AI (Gemini) if configured, otherwise Anthropic.
+ * Call the LLM using the Anthropic SDK.
  *
- * Handles streaming, auto-refresh on 401, and credential resolution.
+ * Routes to Vertex AI (Gemini) only if VERTEX_SERVICE_ACCOUNT_JSON is set.
+ * Otherwise always uses Claude via SDK + Claude Code credentials.
  */
 export async function callLLM(params) {
-    // Route to Vertex AI if configured
+    // Optional legacy override: Vertex AI (Gemini)
     if (isVertexConfigured()) {
         return callVertexLLM(params);
     }
     const { messages, system, tools, model = DEFAULT_MODEL, maxTokens = DEFAULT_MAX_TOKENS, signal, onText, } = params;
-    const source = getSource();
-    const headers = buildHeaders(source);
-    const body = JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        system,
-        messages,
-        tools: tools.length > 0 ? tools : undefined,
-        stream: true,
-    });
-    let response = await fetch(ANTHROPIC_API_URL, {
-        method: "POST",
-        headers,
-        body,
-        signal,
-    });
-    // Auto-refresh on 401/403 for OAuth credentials
-    if ((response.status === 401 || response.status === 403) &&
-        source.type === "claude_oauth" &&
-        source.credentials.refreshToken) {
-        console.error("[LLM] Got 401/403, refreshing OAuth token...");
-        try {
-            const newCreds = await refreshClaudeToken(source.credentials.refreshToken);
-            saveClaudeCredentials(newCreds);
-            // Update cached source
-            cachedSource = { type: "claude_oauth", credentials: newCreds };
-            const newHeaders = buildHeaders(cachedSource);
-            response = await fetch(ANTHROPIC_API_URL, {
-                method: "POST",
-                headers: newHeaders,
-                body,
-                signal,
-            });
+    let source = getSource();
+    // Flatten system blocks to a single string (SDK accepts string for system)
+    const systemText = system.map((s) => s.text).join("\n\n");
+    // Our Message type is structurally identical to Anthropic.MessageParam
+    const sdkMessages = messages;
+    // Map our Tool type to the SDK's Tool shape
+    const sdkTools = tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.input_schema,
+    }));
+    /**
+     * Perform one SDK call. Extracted so we can retry after a token refresh.
+     */
+    async function attempt(currentSource) {
+        const client = buildClient(currentSource);
+        const stream = client.messages.stream({
+            model,
+            max_tokens: maxTokens,
+            system: systemText,
+            messages: sdkMessages,
+            ...(sdkTools.length > 0 && { tools: sdkTools }),
+        }, { signal: signal });
+        // Stream text deltas to the caller as they arrive
+        if (onText) {
+            stream.on("text", onText);
         }
-        catch (refreshErr) {
-            throw new Error(`Token refresh failed: ${refreshErr.message}`);
+        const final = await stream.finalMessage();
+        // Convert SDK content blocks → our internal ContentBlock format
+        const content = final.content.map((block) => {
+            if (block.type === "text") {
+                return { type: "text", text: block.text };
+            }
+            if (block.type === "tool_use") {
+                return {
+                    type: "tool_use",
+                    id: block.id,
+                    name: block.name,
+                    input: block.input,
+                };
+            }
+            // Fallback — shouldn't happen for our use-case
+            return { type: "text", text: "" };
+        });
+        return {
+            content,
+            stop_reason: final.stop_reason ?? "end_turn",
+            usage: {
+                input_tokens: final.usage.input_tokens,
+                output_tokens: final.usage.output_tokens,
+            },
+            model: final.model,
+        };
+    }
+    try {
+        return await attempt(source);
+    }
+    catch (err) {
+        // Auto-refresh Claude Code OAuth token on 401 / 403 and retry once
+        const status = err?.status ?? err?.statusCode;
+        if ((status === 401 || status === 403) &&
+            source.type === "claude_oauth" &&
+            source.credentials.refreshToken) {
+            console.error("[LLM] Got 401/403, refreshing Claude Code OAuth token…");
+            try {
+                const newCreds = await refreshClaudeToken(source.credentials.refreshToken);
+                saveClaudeCredentials(newCreds);
+                cachedSource = { type: "claude_oauth", credentials: newCreds };
+                return await attempt(cachedSource);
+            }
+            catch (refreshErr) {
+                throw new Error(`Token refresh failed: ${refreshErr.message}`);
+            }
         }
+        throw err;
     }
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new Error(`Anthropic API error ${response.status}: ${errorText.slice(0, 300)}`);
-    }
-    const result = await parseSSEStream(response, onText, signal);
-    result.model = model;
-    return result;
 }
 /**
- * Reset cached credentials (e.g., after manual credential update).
+ * Reset the cached credential source (e.g. after a manual credential update).
  */
 export function resetCredentialCache() {
     cachedSource = null;

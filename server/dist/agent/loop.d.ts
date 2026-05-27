@@ -3,10 +3,10 @@
  *
  * Drives the browser automation agent from the server:
  * 1. Receives a task
- * 2. Calls Vertex AI (via callLLM) with system prompt + tools
+ * 2. Calls Claude (via callLLM / @anthropic-ai/sdk) with system prompt + tools
  * 3. For each tool_use: sends execution request to extension via WebSocket relay
  * 4. Gets tool results back from extension
- * 5. Feeds results back to Vertex AI
+ * 5. Feeds results back to Claude
  * 6. Repeats until end_turn or max steps
  * 7. Returns the final answer
  *

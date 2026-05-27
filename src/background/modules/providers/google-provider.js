@@ -76,7 +76,7 @@ export class GoogleProvider extends BaseProvider {
       tools: googleTools,
       tool_config: {
         function_calling_config: {
-          mode: 'AUTO', // Let Gemini decide when to use functions vs return text
+          mode: 'AUTO',
         },
       },
       generationConfig: {

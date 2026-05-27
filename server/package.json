@@ -31,6 +31,7 @@
     "test:followup": "npx tsx test/test-followup.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@sentry/node": "^10.46.0",
     "better-auth": "^1.5.5",

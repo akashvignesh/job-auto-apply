@@ -97,97 +97,114 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
     {
       type: 'text',
       text: `Platform-specific information:
-- You are on a Mac system
-- Use "cmd" as the modifier key for keyboard shortcuts (e.g., "cmd+a" for select all, "cmd+c" for copy, "cmd+v" for paste)`,
+- You are on a Windows system
+- Use "ctrl" as the modifier key for keyboard shortcuts (e.g., "ctrl+a" for select all, "ctrl+c" for copy, "ctrl+v" for paste)`,
     },
     {
       type: 'text',
       text: `<applicant_profile>
 ## ═══════════════════════════════════════════════════
-## APPLICANT PROFILE — REPLACE ALL PLACEHOLDERS WITH YOUR OWN DATA
+## APPLICANT PROFILE — AKASH SURESHKUMAR
 ## ═══════════════════════════════════════════════════
 
 ### Personal Information
-- Full Name: YOUR_FULL_NAME
-- First Name: YOUR_FIRST_NAME
-- Middle Name: YOUR_MIDDLE_NAME (or leave blank if none)
-- Last Name: YOUR_LAST_NAME
-- Email: YOUR_EMAIL@example.com
-- Phone: +1 YOUR-PHONE-NUMBER
+- Full Name: Akash Sureshkumar
+- First Name: Akash
+- Middle Name: (none — leave blank)
+- Last Name: Sureshkumar
+- Email: akashsureshkumar.dev@gmail.com
+- Phone: (716) 709-0514
 - Phone Type: Mobile
-- Address: YOUR_STREET, YOUR_CITY, YOUR_STATE YOUR_ZIP
-- Country: YOUR_COUNTRY
-- State: YOUR_STATE
-- City: YOUR_CITY
-- ZIP: YOUR_ZIP
-- LinkedIn: https://www.linkedin.com/in/YOUR_LINKEDIN_SLUG/
-- GitHub: https://github.com/YOUR_GITHUB_USERNAME
-- Website: https://YOUR_WEBSITE (or remove if none)
+- Address: 77 Heath St, Buffalo, NY 14214
+- City: Buffalo
+- State: New York
+- ZIP: 14214
+- Country: United States
+- LinkedIn: https://www.linkedin.com/in/akash-sureshkumar/
+- GitHub: https://github.com/akashvignesh
+- Website: (none)
 
 ### Professional Summary
-- Current Title: YOUR_CURRENT_TITLE
-- Current Company: YOUR_CURRENT_COMPANY
-- Total Years of Experience: YOUR_YEARS (since MONTH YEAR)
-- Primary Role: YOUR_ROLE (e.g. Full-Stack Engineer)
-- Industries: YOUR_INDUSTRIES (comma-separated)
+- Current Title: Software Engineer, Research
+- Current Company: University at Buffalo
+- Total Years of Experience: 3.5+ years (since Oct 2022)
+- Primary Role: Full-Stack Software Engineer
+- Industries: Higher Education, Insurance / Financial Services
 
 ### Technical Skills
-- Languages: YOUR_LANGUAGES
-- Frontend: YOUR_FRONTEND_TECH
-- Backend: YOUR_BACKEND_TECH
-- Databases: YOUR_DATABASES
-- Cloud/DevOps: YOUR_CLOUD_DEVOPS
-- AI/ML: YOUR_AI_ML_TECH (or remove if N/A)
-- Other: ANY_OTHER_SKILLS
+- Languages: Java, JavaScript, TypeScript, Python, SQL, Bash
+- Frontend: React, Next.js, Angular
+- Backend: Spring Boot, REST APIs, Microservices, Node.js
+- Databases: PostgreSQL, Oracle, Redis, MySQL
+- Cloud/DevOps: AWS (CloudWatch, SNS/SQS, EKS), Docker, GitHub Actions, CI/CD, Linux
+- AI/ML: LLM Inference, CLIP ViT-B/32, LightGBM, MLflow, Power BI, Data Modeling, Data Visualization
+- Engineering Practices: System Design, TDD, JUnit/Mockito, SonarQube, Code Review, Agile/Scrum
+- Monitoring: Splunk, AWS CloudWatch
 
 ### Work Experience (enter ALL of these when forms ask for work history)
 
-**Position 1: COMPANY_1 — TITLE_1**
-- Duration: START_MONTH YEAR – END_MONTH YEAR (or Present)
-- Location: CITY, STATE/COUNTRY
-- Stack: TECH_STACK_USED
+**Position 1: University at Buffalo — Software Engineer, Research**
+- Duration: Feb 2026 – Present
+- Location: Buffalo, NY
+- Stack: Java, Spring Boot, React, Next.js, PostgreSQL, Docker, GitHub Actions
 - Responsibilities:
-  - RESPONSIBILITY_1
-  - RESPONSIBILITY_2
-  - RESPONSIBILITY_3
+  - Designed and built a full-stack Faculty Portal serving 200+ users, exposing 7+ RESTful APIs on Java Spring Boot with React/Next.js frontend and PostgreSQL backend
+  - Optimized data pipeline query performance by 40% through schema normalization and Hibernate/JPA tuning, cutting DB read load by 35% at peak windows
+  - Implemented CI/CD via GitHub Actions with Docker containerization, reducing deployment cycle from 30 min to under 5 min with automated test gates
 
-**Position 2: COMPANY_2 — TITLE_2**
-- Duration: START_MONTH YEAR – END_MONTH YEAR
-- Location: CITY, STATE/COUNTRY
-- Stack: TECH_STACK_USED
+**Position 2: Guardian Life — Software Engineer II**
+- Duration: Apr 2024 – Aug 2024
+- Location: Chennai, India
+- Stack: Java, Spring Boot, Microservices, AWS, Splunk, CloudWatch, CI/CD
 - Responsibilities:
-  - RESPONSIBILITY_1
-  - RESPONSIBILITY_2
+  - Led decomposition of a monolith into event-driven microservices with isolated CI/CD pipelines, improving release cadence from 1 hour to 15 min and enabling 3x faster feature delivery across 4 Agile teams
+  - Reduced MTTR from 5 days to 2 days on a high-availability platform (99.9% SLA, 500+ concurrent sessions) by building real-time Splunk and AWS CloudWatch monitoring dashboards
+  - Mentored 7 engineers on code quality and design patterns via SonarQube quality gates, cutting cyclomatic complexity by 75% across 25+ services
 
-(Add more positions as needed — the agent will enter ALL listed positions when forms allow)
+**Position 3: Guardian Life — Software Engineer I**
+- Duration: Oct 2022 – Mar 2024
+- Location: Chennai, India
+- Stack: Java, Spring Boot, Oracle/SQL, Redis, Postman, REST APIs, AWS
+- Responsibilities:
+  - Reduced API p95 latency from 455 ms to 120 ms (3x throughput) by rewriting Oracle/SQL execution plans with covering indexes and deploying a Redis distributed cache with TTL-based invalidation across 12+ endpoints
+  - Improved system reliability by 35% and cut critical production incidents by 40% by implementing circuit breaker patterns and automated Postman regression suites validating 20+ REST API contracts
+
+**Position 4: Guardian Life — Software Engineer Intern**
+- Duration: Apr 2022 – Sep 2022
+- Location: Chennai, India
+- Stack: Java, Spring Boot, Oracle, Angular, JUnit, Mockito
+- Responsibilities:
+  - Owned end-to-end SDLC delivery of 5+ production features on a Java Spring Boot microservices platform, reducing manual processing time by 15% per feature and supporting $2M+ in monthly transactions
+  - Built 3+ Angular UI workflows with reusable service layers; authored JUnit/Mockito contract tests covering 15+ edge cases to same-day resolve a P0 defect, protecting 12K+ customers
 
 ### Education
 
-**Degree 1: YOUR_DEGREE (e.g. Master's in Computer Science)**
-- School: YOUR_UNIVERSITY
-- GPA: YOUR_GPA / SCALE
-- Duration: START_MONTH YEAR – END_MONTH YEAR
-- Location: CITY, STATE/COUNTRY
-- Coursework: RELEVANT_COURSES (optional)
+**Degree 1: Master of Science, Engineering Science**
+- School: University at Buffalo (SUNY)
+- GPA: (omit — do not fill GPA fields)
+- Duration: Aug 2024 – Dec 2025
+- Location: Buffalo, NY
+- Coursework: Distributed Systems and Big Data, Cloud Computing (AWS), Software Architecture, Machine Learning, Algorithms
 
-**Degree 2: YOUR_DEGREE (optional — add or remove as needed)**
-- School: YOUR_UNIVERSITY
-- GPA: YOUR_GPA / SCALE
-- Duration: START_MONTH YEAR – END_MONTH YEAR
-- Location: CITY, STATE/COUNTRY
+**Degree 2: Bachelor of Engineering, Computer Science and Engineering**
+- School: Sri Sairam Engineering College
+- GPA: (omit — do not fill GPA fields)
+- Duration: Aug 2018 – Jun 2022
+- Location: Chennai, India
+- Coursework: OOP, Software Engineering and Design Patterns, Algorithms and Data Structures
 
-### Academic Projects (optional — remove if not needed)
-- PROJECT_NAME: Brief description of what it does and tech used
-- PROJECT_NAME: Brief description
+### Academic Projects
+- NYC Taxi Demand Predictor (Jan–Mar 2025): End-to-end AI data pipeline ingesting millions of ride events via Confluent Kafka, computing demand predictions across all NYC zones with a Power BI dashboard and Streamlit frontend. Stack: Python, LightGBM, Kafka, PostgreSQL, Hopsworks, Power BI.
+- Multimodal Pump Fault Risk Prediction API (Oct–Dec 2025): Containerized LLM-adjacent inference service fusing sensor telemetry with CLIP ViT-B/32 image embeddings via a TransformerCrossModalFusion layer; optimized hot-path 13x (12.1 ms → 0.95 ms), +26% throughput at 75 concurrent users. Stack: FastAPI, LightGBM, CLIP ViT-B/32, Docker.
 
 ### Work Authorization
-- Authorized to work in the US: YES/NO (visa type if applicable)
-- Requires visa sponsorship: YES/NO
+- Authorized to work in the US: YES — F-1 OPT / STEM OPT
+- Requires visa sponsorship: YES — will need H1B sponsorship in future
 
 ### Standard Question Answers
-- Willing to relocate: YES/NO
+- Willing to relocate: YES
 - At least 18 years old: YES
-- Expected salary: $YOUR_SALARY
+- Expected salary: $110,000
 - Previously employed at this company: NO
 - Covered relationship / family at company: NO
 - Non-compete / restrictions: NO
@@ -200,34 +217,33 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
 - How did you hear about this job: LinkedIn
 
 ### Diversity / EEO
-- Gender: YOUR_GENDER
-- Race/Ethnicity: YOUR_RACE_ETHNICITY
-- Hispanic or Latino: Yes/No
-- Veteran Status: YOUR_VETERAN_STATUS
-- Disability: YOUR_DISABILITY_STATUS
+- Gender: Male
+- Race/Ethnicity: Asian (not Hispanic or Latino)
+- Hispanic or Latino: No
+- Veteran Status: Not a protected veteran
+- Disability: No, I do not have a disability
 
 ### CC-305 Disability Form
-- Name: YOUR_FULL_NAME
+- Name: Akash Sureshkumar
 - Date: Use today's date — click the date field to open the calendar, then click today's already-highlighted date
-- Disability selection: "YOUR_DISABILITY_ANSWER"
+- Disability selection: "I don't have a disability"
 
 </applicant_profile>
 
 <applicant_preferences>
 ## ═══════════════════════════════════════════════════
-## APPLICANT PREFERENCES & DEFAULTS
-## Customize how the agent fills forms and handles common fields
+## APPLICANT PREFERENCES & DEFAULTS — AKASH SURESHKUMAR
 ## ═══════════════════════════════════════════════════
 
 ### Account Credentials (for creating accounts on job sites)
-- Email: YOUR_EMAIL@example.com
-- Password: YOUR_JOB_SITE_PASSWORD
+- Email: akashsureshkumar.dev@gmail.com
+- Password: Akash@2001
 
 ### Name Handling (IMPORTANT)
-- First Name → "YOUR_FIRST_NAME"
-- Middle Name → "YOUR_MIDDLE_NAME" or leave BLANK if none
-- Last Name → "YOUR_LAST_NAME"
-- If your first name is multiple words, note it here so the agent does NOT split it across First/Middle fields
+- First Name → "Akash"
+- Middle Name → leave BLANK (no middle name)
+- Last Name → "Sureshkumar"
+- Do NOT split "Akash" across First/Middle fields
 
 ### Files for Upload
 - Resume: profile/resume.pdf (use file_upload tool with this path)
@@ -236,35 +252,39 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
 - When a form asks to upload a cover letter → use file_upload with filePath "profile/cover.pdf"
 
 ### Cover Letter (for text fields / textareas — NOT file uploads)
-When a form has a text field for cover letter (not a file upload), use this short version.
+When a form has a text field for cover letter (not a file upload), use this version.
 Replace [Role Title] and [Company Name] with the actual job title and company from the page:
 
-YOUR_COVER_LETTER_TEXT_HERE — Write 3-5 sentences summarizing your experience, what excites you about the role, and what you'd bring. Use [Role Title] and [Company Name] as placeholders that the agent replaces dynamically.
+I am a Software Engineer with 3.5+ years of experience building scalable full-stack systems, REST APIs, and microservices on cloud-native platforms. At Guardian Life, I drove a 3x API throughput improvement and led a monolith-to-microservices migration that cut release cycles from 1 hour to 15 minutes. I am excited about the [Role Title] opportunity at [Company Name] because it aligns with my hands-on expertise in Java Spring Boot, AWS, and LLM-powered inference services. I would bring the same end-to-end ownership and measurable impact I have demonstrated across my 3.5 years of production engineering experience.
 
 ### Dropdown Search Keywords
 When filling dropdowns, always search with ONE keyword first. Use these mappings:
 | Field | Search keyword | Expected match |
 |-------|---------------|----------------|
-| Country | "YOUR_COUNTRY_KEYWORD" | YOUR_COUNTRY |
-| State/Province | "YOUR_STATE_KEYWORD" | YOUR_STATE |
-| City | "YOUR_CITY_KEYWORD" | YOUR_CITY |
-| Degree/Education | "YOUR_DEGREE_KEYWORD" | YOUR_DEGREE |
-| School/University | "YOUR_SCHOOL_KEYWORD" | YOUR_SCHOOL |
-| Experience level | "YOUR_YEARS" | Expected range match |
+| Country | "United" | United States |
+| State/Province | "New York" | New York |
+| City | "Buffalo" | Buffalo |
+| Degree/Education | "Master" | Master of Science |
+| School/University | "Buffalo" | University at Buffalo |
+| Experience level | "3" | 3-5 years (or closest range) |
 | Job source | "LinkedIn" | LinkedIn |
-| Race/Ethnicity | "YOUR_RACE_KEYWORD" | YOUR_RACE_MATCH |
-| Gender | "YOUR_GENDER_KEYWORD" | YOUR_GENDER |
-| Veteran | "YOUR_VETERAN_KEYWORD" | YOUR_VETERAN_MATCH |
-| Disability | "YOUR_DISABILITY_KEYWORD" | YOUR_DISABILITY_MATCH |
+| Race/Ethnicity | "Asian" | Asian |
+| Gender | "Male" | Male |
+| Veteran | "not" | Not a protected veteran |
+| Disability | "don't" or "no" | I don't have a disability |
 | Phone type | "Mobile" | Mobile |
+| Sponsorship | "Yes" | Yes (when asked if sponsorship needed) |
+| Authorization | "Yes" | Yes (when asked if authorized to work in US) |
+| Visa type | "OPT" or "F-1" | F-1 OPT |
 
 ### Field Defaults
 - "How did you hear about us?" → "LinkedIn"
 - "Previously worked for [Company]?" → "No"
-- Years of experience → YOUR_YEARS
+- Years of experience → 3 (or select "3-5 years" range)
 - Start date → "Immediately" or 2 weeks from today
 - References → "Available upon request"
 - Skills → draw from Technical Skills in profile
+- Visa / authorization questions → select "Yes, authorized" + "Yes, requires sponsorship"
 
 </applicant_preferences>
 
@@ -418,7 +438,7 @@ On every form page, follow this exact sequence:
   
   **IMPORTANT: After filling EACH field, call read_page to confirm success and check for errors before moving to the next field.** If any error appears → fix it immediately.
   
-  **For work experience sections:** Enter ALL positions from the Applicant Profile (OXmaint, Moonraft, Microsoft). If the form allows adding multiple positions, add each one with full details (title, company, dates, responsibilities). Do not skip any position.
+  **For work experience sections:** Enter ALL positions from the Applicant Profile (University at Buffalo, Guardian Life SE II, Guardian Life SE I, Guardian Life Intern). If the form allows adding multiple positions, add each one with full details (title, company, dates, responsibilities). Do not skip any position.
 
 **4c-DROPDOWNS — Special Dropdown Handling (CRITICAL):**
 Every dropdown MUST be resolved before moving to the next field.

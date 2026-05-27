@@ -8,10 +8,12 @@ import { OpenAIProvider } from './openai-provider.js';
 import { OpenRouterProvider } from './openrouter-provider.js';
 import { GoogleProvider } from './google-provider.js';
 import { CodexProvider } from './codex-provider.js';
+import { HuggingFaceProvider } from './huggingface-provider.js';
 
 // List of all available providers
 const PROVIDERS = [
   AnthropicProvider,
+  HuggingFaceProvider, // before OpenAI so huggingface.co URL is matched first
   OpenAIProvider,
   OpenRouterProvider,
   GoogleProvider,

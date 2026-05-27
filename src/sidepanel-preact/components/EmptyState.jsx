@@ -13,6 +13,18 @@ const AGENT_EXAMPLES = [
 export function EmptyState({ onSelectExample, primaryMode }) {
   const examples = primaryMode === 'agent' ? AGENT_EXAMPLES : HUMAN_EXAMPLES;
 
+  const handleUseTemplate = async () => {
+    try {
+      const res = await fetch(chrome.runtime.getURL('prompt-template.txt'));
+      if (res.ok) {
+        const txt = await res.text();
+        onSelectExample(txt);
+      }
+    } catch (err) {
+      console.warn('Could not load prompt template', err);
+    }
+  };
+
   return (
     <div class="empty-state">
       <div class="empty-icon">
@@ -33,6 +45,12 @@ export function EmptyState({ onSelectExample, primaryMode }) {
             {example}
           </button>
         ))}
+        <button
+          class="example-chip template-chip"
+          onClick={handleUseTemplate}
+        >
+          Use template
+        </button>
       </div>
     </div>
   );

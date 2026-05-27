@@ -1,12 +1,14 @@
 /**
- * LLM Client for MCP Server
+ * LLM Client — Claude Code CLI mode
  *
- * Routes between providers:
- * - Vertex AI (Gemini) — managed mode, server-side agent loop
- * - Anthropic — legacy local mode, Claude Code OAuth
+ * Uses the official @anthropic-ai/sdk instead of raw fetch.
+ * Credentials are resolved from:
+ *   1. ANTHROPIC_API_KEY env var  → direct API key
+ *   2. ~/.claude/.credentials.json → Claude Code OAuth (reuses `claude login` session)
+ *   3. macOS Keychain               → Claude Code OAuth
  *
- * Canonical internal format is Anthropic content blocks.
- * Vertex provider converts at the API boundary.
+ * Vertex AI (Gemini) is kept as an optional override: set VERTEX_SERVICE_ACCOUNT_JSON
+ * env var to re-enable it. Otherwise the project runs entirely on Claude.
  */
 export interface ContentBlockText {
     type: "text";
@@ -48,9 +50,8 @@ export interface LLMResponse {
         input_tokens: number;
         output_tokens: number;
     };
-    /** The model that produced this response (for billing attribution) */
     model?: string;
-    /** Raw Gemini response parts — preserves thought signatures for Gemini 3+ */
+    /** Kept for Vertex AI compatibility — unused in Claude mode */
     _rawGeminiParts?: any[];
 }
 export interface CallLLMParams {
@@ -63,12 +64,13 @@ export interface CallLLMParams {
     onText?: (chunk: string) => void;
 }
 /**
- * Call the LLM. Routes to Vertex AI (Gemini) if configured, otherwise Anthropic.
+ * Call the LLM using the Anthropic SDK.
  *
- * Handles streaming, auto-refresh on 401, and credential resolution.
+ * Routes to Vertex AI (Gemini) only if VERTEX_SERVICE_ACCOUNT_JSON is set.
+ * Otherwise always uses Claude via SDK + Claude Code credentials.
  */
 export declare function callLLM(params: CallLLMParams): Promise<LLMResponse>;
 /**
- * Reset cached credentials (e.g., after manual credential update).
+ * Reset the cached credential source (e.g. after a manual credential update).
  */
 export declare function resetCredentialCache(): void;
