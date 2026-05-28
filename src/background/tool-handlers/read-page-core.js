@@ -21,6 +21,28 @@ import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manage
 const READ_PAGE_EXTRACT_TIMEOUT_MS = 75000;
 
 /**
+ * Per-tab cache of the last serialized read, used to collapse redundant identical reads.
+ *
+ * Accuracy guarantee: we only collapse when the serialized DOM (including [ref] numbers) is
+ * byte-identical to the previous read. Identical serialization ⇒ same backendNodeIds ⇒ the
+ * nodes still exist ⇒ the agent's existing refs remain valid. We also cap consecutive collapses
+ * at MAX_COLLAPSE, so after at most 2 collapses the next identical read re-emits the FULL tree —
+ * guaranteeing the agent always has a complete copy within the last few turns even if
+ * conversation compaction pruned the earlier one.
+ *
+ * @type {Map<number, { hash: string, collapseCount: number }>}
+ */
+const lastReadByTab = new Map();
+const MAX_COLLAPSE = 2;
+
+/** Cheap deterministic hash (djb2) over the serialized DOM + URL. */
+function hashRead(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${s.length}:${h}`;
+}
+
+/**
  * @template T
  * @param {Promise<T>} promise
  * @param {number} ms
@@ -102,6 +124,18 @@ export async function handleReadPage(input) {
     if (stats.truncated) {
       meta.push('(output truncated — use max_chars to increase limit)');
     }
+
+    // Collapse redundant identical reads to save tokens. Skipped when a screenshot was
+    // requested (the agent explicitly wants fresh visual state).
+    const hash = hashRead(`${tabNow.url}\n${result.text}`);
+    const prev = lastReadByTab.get(tabId);
+    if (screenshot !== true && prev && prev.hash === hash && prev.collapseCount < MAX_COLLAPSE) {
+      lastReadByTab.set(tabId, { hash, collapseCount: prev.collapseCount + 1 });
+      return {
+        output: `Page DOM is UNCHANGED since your last read_page on this tab (URL: ${tabNow.url} | ${stats.interactiveElements} interactive elements). The element refs from your previous read_page are still valid — act on them directly; do NOT re-read for the same state. If you expected a change: wait ~2s then retry, scroll, take a screenshot (read_page with screenshot=true) to check for an overlay/modal, or take a different action.`,
+      };
+    }
+    lastReadByTab.set(tabId, { hash, collapseCount: 0 });
 
     const response = {
       output: `${result.text}\n\n${meta.join(' | ')}`,
