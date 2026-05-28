@@ -20,11 +20,13 @@ const ZEPHER_PROMPT = `Summarize this browser automation session concisely. Incl
 
 CRITICAL: Only mark a form section, field, or step as completed if the history shows EXPLICIT success confirmation — e.g., "Selected X", "Set text to Y", "Application submitted", "uploaded", "verified". If a step was started or attempted but not explicitly confirmed complete, mark it IN-PROGRESS. Never infer completion from context. Saying an application was submitted when it wasn't is a critical failure.
 
-Be specific about form field values already filled — the agent must not re-fill them. Keep the summary under 800 words (6000 characters maximum).`;
+Be specific about form field values already filled — the agent must not re-fill them. Keep the summary under 1200 words.`;
 
-// Hard cap on summary length (matches browser-use's summary_max_chars default).
-// If the model ignores the word limit in ZEPHER_PROMPT, we truncate here.
-const SUMMARY_MAX_CHARS = 6000;
+// Hard cap on summary length. Raised above browser-use's 6000 default so truncation almost
+// never fires — when it does, we keep the HEAD (USER TASK + filled-field values, which cannot
+// be re-derived) and drop the tail (NEXT ACTION, which the agent re-derives from a fresh
+// read_page on the next turn anyway).
+const SUMMARY_MAX_CHARS = 10000;
 
 // Keep the most-recent N read_page tool_use+result pairs intact during summarization.
 // Older read_page results are replaced with a tiny placeholder to shrink the summarization
