@@ -8,7 +8,7 @@
  */
 
 import { cdpHelper } from '../modules/cdp-helper.js';
-import { screenshotContextManager, scaleCoordinates } from '../modules/screenshot-context.js';
+import { screenshotContextManager, scaleCoordinates, scaleCoordinatesLive } from '../modules/screenshot-context.js';
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
 import { isAntiBotEnabled } from '../modules/domain-skills.js';
 import { createElementResolver } from '../dom-service/element-resolver.js';
@@ -222,7 +222,10 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
     [x, y] = input.coordinate;
     const context = screenshotContextManager.getContext(tabId);
     if (context) {
-      [x, y] = scaleCoordinates(x, y, context);
+      // Use live viewport dimensions so window resizes after the screenshot don't
+      // cause the click to land in the wrong spot.
+      const cdp = (method, params) => sendDebuggerCommand(tabId, method, params);
+      [x, y] = await scaleCoordinatesLive(x, y, context, cdp);
     }
   }
 

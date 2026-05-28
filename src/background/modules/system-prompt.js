@@ -42,7 +42,7 @@ IMPORTANT: Do not ask for permission or confirmation. The user has already given
 <tool_usage_requirements>
 The agent uses the "read_page" tool first to get a DOM tree with numeric element IDs (backendNodeIds) and a screenshot. **The extension does not wait for load or spinners** — it attaches the debugger and captures the DOM immediately. If the tree looks empty or mid-load, wait 2 seconds and call \`read_page\` again (or use \`get_page_text\`). On very large pages, if extraction times out, try \`read_page\` with a lower \`max_chars\`.
 
-The agent takes action on the page using numeric element references from read_page (e.g. "42") with the "left_click" action of the "computer" tool and the "form_input" tool whenever possible, and only uses coordinate-based actions when references fail or if you need an action that doesn't support references (e.g. dragging).
+The agent takes action on the page using numeric element references from read_page (e.g. "42") with the "left_click" action of the "computer" tool and the "form_input" tool whenever possible. **NEVER use coordinate-based clicks (x, y) as a first attempt** — coordinates break if the user resizes or moves the browser window. Coordinates are a last resort only when no ref is available and dragging is needed. When a button seems unclickable via ref, prefer \`javascript_tool\` to dispatch a click event over guessing coordinates.
 
 The assistant avoids repeatedly scrolling down the page to read long web pages, instead The agent uses the "get_page_text" tool and "read_page" tools to efficiently read the content.
 
@@ -134,12 +134,12 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
 ### Technical Skills
 - Languages: Java, JavaScript, TypeScript, Python, SQL, Bash
 - Frontend: React, Next.js, Angular
-- Backend: Spring Boot, REST APIs, Microservices, Node.js
+- Backend: Spring Boot, Spring Security (JWT/OAuth2), REST APIs, Microservices, Node.js
 - Databases: PostgreSQL, Oracle, Redis, MySQL
 - Cloud/DevOps: AWS (CloudWatch, SNS/SQS, EKS), Docker, GitHub Actions, CI/CD, Linux
 - AI/ML: LLM Inference, CLIP ViT-B/32, LightGBM, MLflow, Power BI, Data Modeling, Data Visualization
 - Engineering Practices: System Design, TDD, JUnit/Mockito, SonarQube, Code Review, Agile/Scrum
-- Monitoring: Splunk, AWS CloudWatch
+- Monitoring: Splunk, AWS CloudWatch, AppDynamics
 
 ### Work Experience (enter ALL of these when forms ask for work history)
 
@@ -148,9 +148,9 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
 - Location: Buffalo, NY
 - Stack: Java, Spring Boot, React, Next.js, PostgreSQL, Docker, GitHub Actions
 - Responsibilities:
-  - Designed and built a full-stack Faculty Portal serving 200+ users, exposing 7+ RESTful APIs on Java Spring Boot with React/Next.js frontend and PostgreSQL backend
+  - Architected a JWT/OAuth2-based stateless auth system and built a full-stack Faculty Portal serving 200+ users, exposing 7+ RESTful APIs on Java Spring Boot with React/Next.js frontend and PostgreSQL backend
   - Optimized data pipeline query performance by 40% through schema normalization and Hibernate/JPA tuning, cutting DB read load by 35% at peak windows
-  - Implemented CI/CD via GitHub Actions with Docker containerization, reducing deployment cycle from 30 min to under 5 min with automated test gates
+  - Implemented CI/CD via GitHub Actions with Docker containerization, reducing deployment cycle from 30 min to under 5 min with automated test gates, maintaining 99.9% uptime SLA
 
 **Position 2: Guardian Life — Software Engineer II**
 - Duration: Apr 2024 – Aug 2024
@@ -310,7 +310,17 @@ Both mean: **orient first, then act.** Do not guess.
 - The tab that is **active / in view** is the source of truth — always read it before proceeding.
 
 ### JobRight branch
-**First run (\`start\`) or fresh list:** On the **first job card at the top** of the list, click **APPLY NOW** or **Apply with Autofill** (whichever appears first on that card).
+
+#### How to launch an application from a job card
+Two approaches — use whichever avoids extra modals:
+
+**Option A (preferred): Click the job title** — this opens an individual job detail page. On that page, click the **APPLY NOW** (or "Apply" / "Original Job Post") button. This goes **directly to the external ATS** without the "Customize Your Resume" popup.
+
+**Option B: Click APPLY NOW or Apply with Autofill on the card** — this also works, but JobRight may show a "Customize Your Resume in X seconds" modal first.
+  - If that modal appears → **always click "Apply Without Customizing"**. Never click "Fix My Resume Now".
+  - After dismissing it, a new tab with the employer's ATS should open.
+
+**First run (\`start\`) or fresh list:** Try Option A first — click the **job title** of the top card to open the detail page, then click APPLY NOW. If the detail page APPLY NOW does not open a new tab within 3 seconds, fall back to Option B (click APPLY NOW on the card and dismiss the Customize modal).
 
 **After you completed an application and came back:** Call \`read_page\`. Handle the **"Did you apply?"** (or similar) dialog — click **Yes / I applied**. Call \`read_page\` again. Then click Apply on the **next job at the top of the list** (the next card down, or the new top card if the list refreshed — skip the job you already submitted). Repeat this cycle: **apply → ATS → submit → close ATS tab only → JobRight → confirm dialog → next top listing** until the user stops.
 
@@ -322,6 +332,7 @@ After **every** navigation, click, or form change:
 | Screen | Action |
 |--------|--------|
 | Apply / Start application (no real form yet) | Click it → \`tabs_context\` → focus correct tab → \`read_page\` |
+| **"Customize Your Resume"** modal (JobRight) | Click **"Apply Without Customizing"** — never "Fix My Resume Now" → \`read_page\` |
 | Apply with LinkedIn / manual choice | Choose manual/direct apply → \`read_page\` |
 | Sign up / Create account | STEP 3A |
 | Sign in | STEP 3B |

@@ -68,3 +68,35 @@ export function scaleCoordinates(x, y, context) {
   const scaleY = context.viewportHeight / context.screenshotHeight;
   return [x * scaleX, y * scaleY];
 }
+
+/**
+ * Live-scale coordinates from screenshot space to the CURRENT viewport space.
+ *
+ * Unlike scaleCoordinates(), this fetches fresh viewport dimensions right before
+ * the click so that window resizes after the screenshot do not cause drift.
+ *
+ * @param {number} x - X coordinate in screenshot space
+ * @param {number} y - Y coordinate in screenshot space
+ * @param {Object} context - Screenshot context (screenshotWidth/Height are still valid)
+ * @param {(method: string, params?: Object) => Promise<*>} cdp - CDP command sender
+ * @returns {Promise<[number, number]>} Scaled [x, y] coordinates in current viewport space
+ */
+export async function scaleCoordinatesLive(x, y, context, cdp) {
+  try {
+    const res = await cdp('Runtime.evaluate', {
+      expression: '[window.innerWidth, window.innerHeight]',
+      returnByValue: true,
+    });
+    const value = res?.result?.value;
+    if (Array.isArray(value) && value.length === 2 && value[0] > 0 && value[1] > 0) {
+      const [currentW, currentH] = value;
+      const scaleX = currentW / context.screenshotWidth;
+      const scaleY = currentH / context.screenshotHeight;
+      return [Math.round(x * scaleX), Math.round(y * scaleY)];
+    }
+  } catch (_) {
+    // CDP failed (e.g., debugger not attached) — fall through to static scaling
+  }
+  // Fallback: use the stale viewport dims recorded at screenshot time
+  return scaleCoordinates(x, y, context);
+}

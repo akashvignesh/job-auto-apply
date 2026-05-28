@@ -1353,8 +1353,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'SAVE_CONFIG':
-      chrome.storage.local.set(payload).then(() => {
-        setConfig(payload);
+      chrome.storage.local.get(['providerKeys']).then(existing => {
+        const providerKeys = payload.providerKeys
+          ? { ...(existing.providerKeys || {}), ...payload.providerKeys }
+          : existing.providerKeys;
+        const normalizedPayload = { ...payload };
+        if (providerKeys) {
+          normalizedPayload.providerKeys = providerKeys;
+        }
+        if (providerKeys?.google && (payload.provider === 'google' || payload.apiBaseUrl?.includes('generativelanguage.googleapis.com'))) {
+          normalizedPayload.apiKey = providerKeys.google;
+        }
+        return chrome.storage.local.set(normalizedPayload).then(() => normalizedPayload);
+      }).then(normalizedPayload => {
+        setConfig(normalizedPayload);
         sendResponse({ success: true });
       });
       return true;
@@ -1536,19 +1548,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+async function getDefaultGoogleApiKey() {
+  try {
+    const secrets = await import('./modules/local-secrets.js');
+    return secrets.DEFAULT_GOOGLE_API_KEY || '';
+  } catch {
+    return '';
+  }
+}
+
+async function syncDefaultGoogleConfig() {
+  const defaultGoogleApiKey = await getDefaultGoogleApiKey();
+  const stored = await chrome.storage.local.get(['providerKeys', 'apiBaseUrl', 'model', 'provider']);
+  if (!defaultGoogleApiKey) return;
+
+  const model = stored.model || 'gemini-2.5-flash';
+  const isGoogleChatModel = model.startsWith('gemma-4-')
+    || (model.startsWith('gemini-')
+      && !['image', 'tts', 'audio', 'live', 'embedding', 'robotics', 'computer-use'].some(fragment => model.includes(fragment)));
+  const shouldUseOpenAICompat = isGoogleChatModel
+    && (stored.provider === 'google' || (stored.apiBaseUrl || '').includes('generativelanguage.googleapis.com'));
+  const openAICompatUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+
+  const updates = {
+    apiKey: defaultGoogleApiKey,
+    providerKeys: { ...(stored.providerKeys || {}), google: defaultGoogleApiKey },
+  };
+  if (!stored.model) {
+    updates.model = model;
+  }
+  if (shouldUseOpenAICompat) {
+    updates.provider = 'openai';
+    updates.apiBaseUrl = openAICompatUrl;
+  } else if (!stored.apiBaseUrl) {
+    updates.apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
+    updates.provider = 'google';
+  }
+
+  await chrome.storage.local.set(updates);
+}
+
+syncDefaultGoogleConfig().catch(error => {
+  console.warn('[Config] Failed to sync default Google config:', error);
+});
+
 // Open status page on first install
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // Seed Gemini config on install or update if not already configured
-  const stored = await chrome.storage.local.get(['providerKeys']);
-  if (!stored.providerKeys?.google) {
-    await chrome.storage.local.set({
-      apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
-      apiKey: 'AIzaSyAF8q6VTEsqkpZ4KMDwAwfNMuZ9RM0UekI',
-      model: 'gemini-2.5-flash',
-      provider: 'google',
-      providerKeys: { ...(stored.providerKeys || {}), google: 'AIzaSyAF8q6VTEsqkpZ4KMDwAwfNMuZ9RM0UekI' },
-    });
-  }
+  await syncDefaultGoogleConfig();
 
   if (details.reason === 'install') {
     // Check if credentials already exist (e.g. user ran CLI setup first)

@@ -105,7 +105,12 @@ function isInteractive(node) {
   }
 
   // Cursor pointer
-  return node.snapshotNode?.cursorStyle === 'pointer';
+  if (node.snapshotNode?.cursorStyle === 'pointer') return true;
+
+  // JS event listeners (click/mousedown/touchstart bound via addEventListener)
+  // Detected via DOMDebugger.getEventListeners — catches React/Vue onClick bindings
+  // on plain <div>/<span> elements that have no ARIA role or cursor style.
+  return !!node.hasJsEventListener;
 }
 
 /**

@@ -7,6 +7,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+src/background/modules/local-secrets.js
 *.pem
 service-account*.json
 *-service-account*.json

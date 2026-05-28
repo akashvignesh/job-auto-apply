@@ -35,6 +35,70 @@ let apiCallCounter = 0;
 // Native host port for OAuth proxy (reused across API calls)
 let nativeHostPort = null;
 
+const GOOGLE_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const TEMP_GOOGLE_API_KEY = 'AIzaSyAMRTkhFTtJ-oa9KtEUp4O_OrA4mAB0ckQ';
+
+function isGoogleOpenAICompatibleChatModel(model = '') {
+  if (model.startsWith('gemma-4-')) return true;
+  if (!model.startsWith('gemini-')) return false;
+
+  return ![
+    'image',
+    'tts',
+    'audio',
+    'live',
+    'embedding',
+    'robotics',
+    'computer-use',
+  ].some(fragment => model.includes(fragment));
+}
+
+async function getLocalDefaultGoogleApiKey() {
+  try {
+    const secrets = await import('./local-secrets.js');
+    return secrets.DEFAULT_GOOGLE_API_KEY || '';
+  } catch {
+    return '';
+  }
+}
+
+async function normalizeGoogleApiKey(callConfig, persist = false) {
+  const isGoogleOpenAICompatModel = isGoogleOpenAICompatibleChatModel(callConfig.model || '')
+    && (callConfig.apiBaseUrl || '').includes('generativelanguage.googleapis.com');
+  const routeThroughOpenAICompat = isGoogleOpenAICompatModel
+    && callConfig.apiBaseUrl !== GOOGLE_OPENAI_COMPAT_BASE_URL;
+  const isGoogleConfig = callConfig.provider === 'google'
+    || (callConfig.apiBaseUrl || '').includes('generativelanguage.googleapis.com')
+    || (callConfig.apiBaseUrl || '').includes('aiplatform.googleapis.com');
+
+  if (!isGoogleConfig) return callConfig;
+
+  const localDefaultGoogleApiKey = TEMP_GOOGLE_API_KEY || await getLocalDefaultGoogleApiKey();
+  const googleApiKey = localDefaultGoogleApiKey || callConfig.providerKeys?.google || '';
+  if (!googleApiKey || (!routeThroughOpenAICompat && callConfig.apiKey === googleApiKey)) return callConfig;
+
+  const normalized = {
+    ...callConfig,
+    ...(routeThroughOpenAICompat
+      ? { provider: 'openai', apiBaseUrl: GOOGLE_OPENAI_COMPAT_BASE_URL }
+      : {}),
+    apiKey: googleApiKey,
+    providerKeys: { ...(callConfig.providerKeys || {}), google: googleApiKey },
+  };
+
+  if (persist) {
+    await chrome.storage.local.set({
+      ...(routeThroughOpenAICompat
+        ? { provider: 'openai', apiBaseUrl: GOOGLE_OPENAI_COMPAT_BASE_URL }
+        : {}),
+      apiKey: googleApiKey,
+      providerKeys: normalized.providerKeys,
+    });
+  }
+
+  return normalized;
+}
+
 /**
  * Load configuration from storage
  */
@@ -45,6 +109,7 @@ export async function loadConfig() {
     'provider', 'agentDefaultConfig'
   ]);
   config = { ...config, ...stored };
+  config = await normalizeGoogleApiKey(config, true);
 
   // Include built-in skills for UI display
   config.builtInSkills = DOMAIN_SKILLS.map(s => ({ domain: s.domain, skill: s.skill }));
@@ -299,7 +364,7 @@ export async function callLLMSimple(promptOrOptions) {
     messages = [{ role: 'user', content: promptOrOptions }];
   }
 
-  let effectiveConfig = buildEffectiveConfig(configOverride || {});
+  let effectiveConfig = await normalizeGoogleApiKey(buildEffectiveConfig(configOverride || {}));
   effectiveConfig = resolveConfigWithTier(effectiveConfig, modelTier);
   const provider = createProvider(effectiveConfig.apiBaseUrl || '', effectiveConfig);
   const providerName = provider.getName();
@@ -1077,16 +1142,25 @@ function normalizeCodexResponse(response) {
 export async function callLLM(messages, onTextChunk = null, log = () => {}, currentUrl = null, externalSignal = null, options = {}) {
   await loadConfig();
 
-  const effectiveConfig = buildEffectiveConfig({
+  const effectiveConfig = await normalizeGoogleApiKey(buildEffectiveConfig({
     ...(options.configOverride || {}),
     ...(options.modelOverride ? { model: options.modelOverride } : {}),
-  });
+  }));
 
   // Debug: log config values
   console.log('[API] Config loaded:', {
     apiBaseUrl: effectiveConfig.apiBaseUrl,
     model: effectiveConfig.model,
     hasApiKey: !!effectiveConfig.apiKey,
+    providerKeyPrefix: effectiveConfig.providerKeys?.google ? effectiveConfig.providerKeys.google.substring(0, 10) + '...' : 'none',
+    apiKeyPrefix: effectiveConfig.apiKey ? effectiveConfig.apiKey.substring(0, 10) + '...' : 'none',
+  });
+  await log('API_CONFIG', 'Resolved LLM config', {
+    apiBaseUrl: effectiveConfig.apiBaseUrl,
+    model: effectiveConfig.model,
+    provider: effectiveConfig.provider,
+    hasApiKey: !!effectiveConfig.apiKey,
+    providerKeyPrefix: effectiveConfig.providerKeys?.google ? effectiveConfig.providerKeys.google.substring(0, 10) + '...' : 'none',
     apiKeyPrefix: effectiveConfig.apiKey ? effectiveConfig.apiKey.substring(0, 10) + '...' : 'none',
   });
 

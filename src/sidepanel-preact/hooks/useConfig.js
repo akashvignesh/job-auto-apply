@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { PROVIDERS, CODEX_MODELS, LOCAL_MODELS } from '../config/providers';
 
+const GOOGLE_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+
+function isGoogleOpenAICompatibleChatModel(model = '') {
+  if (model.startsWith('gemma-4-')) return true;
+  if (!model.startsWith('gemini-')) return false;
+
+  return ![
+    'image',
+    'tts',
+    'audio',
+    'live',
+    'embedding',
+    'robotics',
+    'computer-use',
+  ].some(fragment => model.includes(fragment));
+}
+
 function serializeModelConfig(model) {
   if (!model) return null;
 
@@ -181,11 +198,12 @@ export function useConfig() {
           ? fetchedGoogleModels
           : provider.models;
         for (const model of modelList) {
+          const useOpenAICompat = providerId === 'google' && isGoogleOpenAICompatibleChatModel(model.id);
           models.push({
             name: `${model.name} (API)`,
-            provider: providerId,
+            provider: useOpenAICompat ? 'openai' : providerId,
             modelId: model.id,
-            baseUrl: provider.baseUrl,
+            baseUrl: useOpenAICompat ? GOOGLE_OPENAI_COMPAT_BASE_URL : provider.baseUrl,
             apiKey: hasApiKey,
             authMethod: 'api_key',
           });

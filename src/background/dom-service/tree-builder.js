@@ -107,7 +107,7 @@ function isNodeVisible(snapshotNode, absolutePosition, viewportHeight, viewportT
  * @param {number} viewportHeight - Viewport height for visibility filtering
  * @returns {EnhancedNode}
  */
-export function buildEnhancedTree(domRoot, axLookup, snapshotLookup, viewportHeight = 725) {
+export function buildEnhancedTree(domRoot, axLookup, snapshotLookup, viewportHeight = 725, eventListenerSet = new Set()) {
   const nodeCache = new Map();
 
   function construct(node, frameOffset) {
@@ -213,6 +213,8 @@ export function buildEnhancedTree(domRoot, axLookup, snapshotLookup, viewportHei
       contentDocument,
       shadowRoots,
       children,
+      // Set by event-listener detection pass in extractDomState
+      hasJsEventListener: eventListenerSet.has(backendNodeId),
     };
 
     if (nodeId !== 0) {

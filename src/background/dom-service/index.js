@@ -21,6 +21,95 @@ import { buildSnapshotLookup, REQUIRED_COMPUTED_STYLES } from './snapshot-lookup
 import { buildAxLookup, buildEnhancedTree } from './tree-builder.js';
 import { serializeDomTree } from './serializer.js';
 
+// Tags that are never semantically interactive on their own but often carry
+// React/Vue addEventListener bindings.  We only query these for event listeners.
+const CANDIDATE_TAGS = new Set([
+  'div', 'span', 'li', 'td', 'th', 'p', 'article', 'section',
+  'nav', 'header', 'footer', 'main', 'label', 'aside',
+]);
+
+// Only these listener types indicate a "click-like" interaction.
+const CLICK_EVENTS = new Set([
+  'click', 'mousedown', 'touchstart', 'pointerdown',
+]);
+
+/**
+ * Traverse raw DOM.getDocument result and collect backendNodeIds of
+ * non-semantic elements that might carry JS event listeners.
+ * Caps at `cap` entries to bound CDP round-trips.
+ *
+ * @param {Object} rawNode - node from DOM.getDocument response
+ * @param {number[]} out - accumulator array
+ * @param {number} cap
+ */
+function collectCandidateIds(rawNode, out, cap = 150) {
+  if (!rawNode || out.length >= cap) return;
+  const tag = (rawNode.nodeName || '').toLowerCase();
+  if (CANDIDATE_TAGS.has(tag) && rawNode.backendNodeId) {
+    out.push(rawNode.backendNodeId);
+  }
+  for (const child of rawNode.children || []) {
+    if (out.length >= cap) break;
+    collectCandidateIds(child, out, cap);
+  }
+  // Recurse into shadow roots and content documents
+  for (const sr of rawNode.shadowRoots || []) {
+    if (out.length >= cap) break;
+    collectCandidateIds(sr, out, cap);
+  }
+  if (rawNode.contentDocument && out.length < cap) {
+    collectCandidateIds(rawNode.contentDocument, out, cap);
+  }
+}
+
+/**
+ * For a list of backendNodeIds, resolve each to a JS objectId and call
+ * DOMDebugger.getEventListeners.  Returns a Set of backendNodeIds that
+ * have at least one click-family listener.
+ *
+ * Errors on individual elements are silently skipped.
+ * The whole call is wrapped in a 5-second deadline so it never blocks extraction.
+ *
+ * @param {(m: string, p?: Object) => Promise<*>} cdp
+ * @param {number[]} candidateIds
+ * @returns {Promise<Set<number>>}
+ */
+async function collectEventListenerHints(cdp, candidateIds) {
+  if (!candidateIds.length) return new Set();
+
+  const work = async () => {
+    const result = new Set();
+    await Promise.all(
+      candidateIds.map(async (backendNodeId) => {
+        try {
+          const { object } = await cdp('DOM.resolveNode', { backendNodeId });
+          if (!object?.objectId) return;
+          const { listeners } = await cdp('DOMDebugger.getEventListeners', {
+            objectId: object.objectId,
+            depth: 0,       // only this element, not ancestors
+            pierce: false,
+          });
+          if (listeners && listeners.some((l) => CLICK_EVENTS.has(l.type))) {
+            result.add(backendNodeId);
+          }
+          // Release the remote object to avoid memory leak
+          await cdp('Runtime.releaseObject', { objectId: object.objectId }).catch(() => {});
+        } catch (_) {
+          // silently skip — node may have been removed or CDP may not support it
+        }
+      }),
+    );
+    return result;
+  };
+
+  try {
+    return await raceDeadline(work(), 5000, 'collectEventListenerHints');
+  } catch (e) {
+    console.warn('[extractDomState] event listener hints timed out:', e?.message || e);
+    return new Set();
+  }
+}
+
 /**
  * @param {Promise<*>} promise
  * @param {number} ms
@@ -70,10 +159,12 @@ async function captureSnapshotPhased(cdp, snapshotTimeoutMs) {
  * @param {Object} rawCdp - Object with keys: dom_snapshot, dom_tree, ax_tree, layout_metrics
  * @param {Object} [options]
  * @param {number} [options.maxChars=40000]
+ * @param {Set<number>} [options.eventListenerSet] - backendNodeIds with JS click listeners
  * @returns {{ text: string, selectorMap: Map<number, Object>, stats: Object }}
  */
 export function processCdpData(rawCdp, options = {}) {
   const { dom_snapshot, dom_tree, ax_tree, layout_metrics } = rawCdp;
+  const { eventListenerSet = new Set() } = options;
 
   // Calculate device pixel ratio
   const cssViewport = layout_metrics?.cssVisualViewport || {};
@@ -115,6 +206,7 @@ export function processCdpData(rawCdp, options = {}) {
     axLookup,
     snapshotLookup,
     viewportHeight,
+    eventListenerSet,
   );
 
   // Phase 4: Serialize
@@ -234,12 +326,20 @@ export async function extractDomState(tabId, sendCommand, options = {}) {
     console.warn('[extractDomState] layout metrics:', e?.message);
   }
 
-  const axResults = await Promise.all(
-    frameIds.map((fid) =>
-      raceDeadline(cdp('Accessibility.getFullAXTree', { frameId: fid }), axFrameTimeoutMs, `AX.${String(fid).slice(0, 8)}`)
-        .catch(() => ({ nodes: [] })),
+  // Collect candidate backendNodeIds for JS event listener detection
+  const candidateIds = [];
+  collectCandidateIds(domResult.root, candidateIds, 150);
+
+  // Run AX tree collection AND event listener hints in parallel
+  const [axResults, eventListenerSet] = await Promise.all([
+    Promise.all(
+      frameIds.map((fid) =>
+        raceDeadline(cdp('Accessibility.getFullAXTree', { frameId: fid }), axFrameTimeoutMs, `AX.${String(fid).slice(0, 8)}`)
+          .catch(() => ({ nodes: [] })),
+      ),
     ),
-  );
+    collectEventListenerHints(cdp, candidateIds),
+  ]);
 
   const allAxNodes = [];
   for (const axResult of axResults) {
@@ -255,7 +355,7 @@ export async function extractDomState(tabId, sendCommand, options = {}) {
     layout_metrics: layoutResult,
   };
 
-  const result = processCdpData(rawCdp, { maxChars });
+  const result = processCdpData(rawCdp, { maxChars, eventListenerSet });
 
   let screenshot = null;
   if (includeScreenshot) {
