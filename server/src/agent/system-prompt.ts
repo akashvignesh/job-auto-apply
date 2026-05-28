@@ -4,7 +4,7 @@
 
 import { getDomainSkill } from "./domain-knowledge.js";
 
-export function buildSystemPrompt(taskUrl?: string): Array<{ type: "text"; text: string }> {
+export function buildSystemPrompt(taskUrl?: string): Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }> {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "numeric",
@@ -13,9 +13,10 @@ export function buildSystemPrompt(taskUrl?: string): Array<{ type: "text"; text:
   });
   const timeStr = now.toLocaleTimeString("en-US");
 
-  const blocks: Array<{ type: "text"; text: string }> = [
+  const blocks: Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }> = [
     {
       type: "text",
+      cache_control: { type: "ephemeral" },
       text: `You are a web automation assistant with browser tools. Your priority is to complete the user's request efficiently and autonomously.
 
 Browser tasks often require long-running, agentic capabilities. When you encounter a user request that feels time-consuming or extensive in scope, you should be persistent and use all available context needed to accomplish the task. The user expects you to work autonomously until the task is complete. Do not ask for permission - just do it.
@@ -48,6 +49,7 @@ When a page shows only a loading spinner, use the computer tool with action "wai
   if (domainSkill) {
     blocks.push({
       type: "text",
+      cache_control: { type: "ephemeral" },
       text: `<domain_knowledge domain="${domainSkill.domain}">\n${domainSkill.skill}\n</domain_knowledge>`,
     });
   }

@@ -86,11 +86,14 @@ function sanitizeForLogging(data) {
  * @returns {Promise<void>}
  */
 export async function log(type, message, data = null, options = {}) {
-  const { sessionId } = options;
+  const { sessionId, turn, url, durationMs } = options;
   const sanitizedData = sanitizeForLogging(data);
   const entry = {
     time: new Date().toISOString(),
     type,
+    ...(turn !== undefined && { turn }),
+    ...(url && { url }),
+    ...(durationMs !== undefined && { durationMs }),
     message,
     data: sanitizedData ? JSON.stringify(sanitizedData).substring(0, LIMITS.LOG_DATA_CHARS) : null,
   };
@@ -161,65 +164,71 @@ function buildTurnsFromDebugLog(debugLog) {
   let pendingToolResults = [];
 
   for (const entry of debugLog) {
-    if (entry.type === 'AI_RESPONSE') {
-      // Flush any pending tool results to previous turn
+    if (entry.type === 'API') {
+      // Attach API metadata to the current turn being built
+      if (currentTurn) {
+        try {
+          const data = entry.data ? JSON.parse(entry.data) : {};
+          currentTurn.llm = {
+            durationMs: data.duration ? parseInt(data.duration) : undefined,
+            stopReason: data.stopReason,
+            tokens: data.tokens,
+            costUsd: data.costUsd,
+          };
+          if (entry.url) currentTurn.url = entry.url;
+          if (entry.turn !== undefined) currentTurn.turn = entry.turn;
+        } catch (e) { /* skip */ }
+      }
+    } else if (entry.type === 'AI_RESPONSE') {
+      // Flush pending tool results to previous turn
       if (currentTurn && pendingToolResults.length > 0) {
         for (const result of pendingToolResults) {
           const tool = currentTurn.tools.find(t => t.name === result.toolName && t.result === null);
-          if (tool) {
-            tool.result = result.result;
-          }
+          if (tool) tool.result = result.result;
         }
         pendingToolResults = [];
       }
 
-      // Start new turn
       try {
         const data = JSON.parse(entry.data);
         currentTurn = {
+          turn: entry.turn,
+          url: entry.url || null,
+          llm: null, // filled by API entry above
           tools: (data.toolCalls || []).map(tc => ({
             name: tc.name,
             input: tc.input,
-            result: null
+            result: null,
+            durationMs: null,
           })),
-          ai_response: data.textContent || null
+          ai_response: data.textContent || null,
         };
         turns.push(currentTurn);
-      } catch (e) {
-        // Skip malformed entries
-      }
+      } catch (e) { /* skip malformed */ }
+
     } else if (entry.type === 'TOOL_RESULT' && currentTurn) {
       try {
         const data = JSON.parse(entry.data);
         const toolName = data.tool;
-        // Try to find matching tool in current turn
         const tool = currentTurn.tools.find(t => t.name === toolName && t.result === null);
-        if (tool) {
-          // Build result string
-          let result = data.error || data.textResult || '';
-          if (data.objectResult) {
-            result = typeof data.objectResult === 'string'
-              ? data.objectResult
-              : JSON.stringify(data.objectResult);
-          }
-          if (data.screenshot) {
-            result += ' [+screenshot]';
-          }
-          tool.result = result.substring(0, 2000); // Limit result size
-        } else {
-          // Queue for next matching
-          pendingToolResults.push({
-            toolName,
-            result: data.error || data.textResult || JSON.stringify(data.objectResult || {})
-          });
+        let result = data.error || data.textResult || '';
+        if (data.objectResult) {
+          result = typeof data.objectResult === 'string'
+            ? data.objectResult
+            : JSON.stringify(data.objectResult);
         }
-      } catch (e) {
-        // Skip malformed entries
-      }
+        if (data.screenshot) result += ' [+screenshot]';
+        if (tool) {
+          tool.result = result;
+          tool.durationMs = entry.durationMs ?? data.durationMs ?? null;
+          tool.success = !data.error;
+        } else {
+          pendingToolResults.push({ toolName, result });
+        }
+      } catch (e) { /* skip */ }
     }
   }
 
-  // Clean up empty turns
   return turns.filter(t => t.ai_response || t.tools.length > 0);
 }
 
@@ -248,20 +257,53 @@ export async function saveTaskLogs(taskData, screenshots = [], options = {}) {
     // Build turns from debug log (complete history) instead of compressed messages
     const turns = buildTurnsFromDebugLog(scopedDebugLog);
 
+    // Build compaction summary from COMPACT entries
+    const compactions = scopedDebugLog
+      .filter(e => e.type === 'COMPACT' && e.data)
+      .map(e => { try { return { turn: e.turn, ...JSON.parse(e.data) }; } catch { return null; } })
+      .filter(Boolean);
+
+    // Build per-turn cost total from API entries
+    const apiEntries = scopedDebugLog.filter(e => e.type === 'API' && e.data);
+    let totalCostUsd = 0;
+    for (const e of apiEntries) {
+      try { totalCostUsd += parseFloat(JSON.parse(e.data).costUsd || 0); } catch { /* skip */ }
+    }
+
+    const durationS = taskData.startTime && taskData.endTime
+      ? ((new Date(taskData.endTime) - new Date(taskData.startTime)) / 1000).toFixed(1)
+      : null;
+
+    const usage = taskData.usage || null;
+
     const cleanLog = {
       task: taskData.task,
       sessionId,
+      model: (usage && usage.model) || null,
       status: taskData.status,
       startTime: taskData.startTime,
       endTime: taskData.endTime,
-      duration: taskData.startTime && taskData.endTime
-        ? `${((new Date(taskData.endTime) - new Date(taskData.startTime)) / 1000).toFixed(1)}s`
-        : null,
-      usage: taskData.usage || null,
-      turns: turns,
-      screenshots: screenshots.map((_, i) => `screenshot_${i + 1}.png`),
-      debug: filterDebugLog(scopedDebugLog), // Filter redundant entries for cleaner logs
+      durationSeconds: durationS ? parseFloat(durationS) : null,
+      totals: usage ? {
+        apiCalls: usage.apiCalls || null,
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        cacheReadTokens: usage.cacheReadTokens || 0,
+        cacheWriteTokens: usage.cacheCreationTokens || 0,
+        totalCostUsd: parseFloat(totalCostUsd.toFixed(6)),
+      } : null,
+      turns,
+      compactions,
+      screenshots: screenshots.map((_, i) => `screenshot_${i + 1}.jpeg`),
+      errors: scopedDebugLog.filter(e => e.type === 'ERROR').map(e => ({
+        turn: e.turn,
+        url: e.url,
+        time: e.time,
+        message: e.message,
+        detail: e.data,
+      })),
       error: taskData.error || null,
+      debug: filterDebugLog(scopedDebugLog),
     };
 
     // Save log.json

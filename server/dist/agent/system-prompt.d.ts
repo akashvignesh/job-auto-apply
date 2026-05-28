@@ -4,4 +4,7 @@
 export declare function buildSystemPrompt(taskUrl?: string): Array<{
     type: "text";
     text: string;
+    cache_control?: {
+        type: "ephemeral";
+    };
 }>;

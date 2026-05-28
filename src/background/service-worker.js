@@ -49,6 +49,52 @@ import { initErrorReporting, captureError } from './modules/error-reporter.js';
 initErrorReporting();
 
 // ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Strip screenshots from all but the most recent `keepLast` image-bearing user messages.
+ * Handles both direct image blocks and screenshots nested inside tool_result blocks
+ * (read_page returns screenshots inside tool_result, not as top-level image blocks).
+ * Does not mutate the original array.
+ */
+function pruneOldScreenshots(messages, keepLast = 2) {
+  function hasImage(msg) {
+    if (!Array.isArray(msg.content)) return false;
+    return msg.content.some(b => {
+      if (b.type === 'image') return true;
+      if (b.type === 'tool_result' && Array.isArray(b.content)) {
+        return b.content.some(inner => inner.type === 'image');
+      }
+      return false;
+    });
+  }
+
+  function stripImages(msg) {
+    return {
+      ...msg,
+      content: msg.content.map(b => {
+        if (b.type === 'image') return null;
+        if (b.type === 'tool_result' && Array.isArray(b.content)) {
+          return { ...b, content: b.content.filter(inner => inner.type !== 'image') };
+        }
+        return b;
+      }).filter(Boolean),
+    };
+  }
+
+  const imageIndices = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'user' && hasImage(messages[i])) {
+      imageIndices.push(i);
+    }
+  }
+  const toStrip = new Set(imageIndices.slice(0, -keepLast));
+  if (toStrip.size === 0) return messages;
+  return messages.map((msg, i) => toStrip.has(i) ? stripImages(msg) : msg);
+}
+
+// ============================================
 // CONSTANTS
 // ============================================
 
@@ -754,7 +800,9 @@ async function injectMcpMessages(mcpSession, mcpMessagesInjected, messages, init
 // eslint-disable-next-line complexity, sonarjs/cognitive-complexity
 async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBeforeActing = true, existingHistory = [], initialTabGroupId = null, mcpSession = null) {
   const sessionId = mcpSession?.sessionId || null;
-  const taskLog = (type, message, data = null) => log(type, message, data, { sessionId });
+  let _logTurn = 0;
+  let _logUrl = null;
+  const taskLog = (type, message, data = null) => log(type, message, data, { sessionId, turn: _logTurn, url: _logUrl });
   const clearTaskLog = () => clearLog({ sessionId });
   const isRunCancelled = () => (mcpSession ? !!mcpSession.cancelled : uiSessionState.cancelled);
 
@@ -857,6 +905,8 @@ ${mcpSession.context}</system-reminder>`,
     // Fresh URL after navigations/clicks (job-flow continuation relies on ATS detection)
     const freshCtx = await buildTabContext(initialTabId, mcpSession, null);
     currentTabUrl = freshCtx.currentTabUrl;
+    _logTurn = steps;
+    _logUrl = currentTabUrl;
 
     // Calculate token count for monitoring
     const currentTokens = calculateContextTokens(messages);
@@ -927,7 +977,8 @@ ${mcpSession.context}</system-reminder>`,
         await taskLog('MEMORY', `Rolling window: condensed to ${messages.length} messages`);
       }
     } else {
-      // Cloud models: use standard compaction
+      // Cloud models: prune stale screenshots then compact if needed
+      messages = pruneOldScreenshots(messages, 2);
       const compactionLLM = mcpSession
         ? (msgs, onChunk, log, url, signal, opts) =>
             callLLM(msgs, onChunk, log, url, signal, { ...opts, configOverride: mcpSession.modelConfig })
@@ -1014,10 +1065,7 @@ Do not declare the task "complete" or refuse further tool calls — the user wil
 
         const jobNudge = `You ended your turn without using tools. This application run continues until the user clicks **Stop** — do not stop on your own.
 
-**Do this now (repeat):**
-1. **read_page** on the active application tab.
-2. Fill required fields (**form_input**), click Next / Save and Continue / Submit (**computer** with refs from read_page), **file_upload** for resume/cover letter when needed.
-3. After each navigation, modal, or major action → **read_page** again.
+Take the next action to progress the job application. If you are unsure of the current page state, call read_page first. Otherwise proceed directly with form_input, computer, file_upload, or navigate as needed.
 
 Stay on the employer ATS tab unless the workflow explicitly requires switching.`;
 
@@ -1056,6 +1104,7 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         }
       }
 
+      const toolStartTime = Date.now();
       const result = await executeTool(toolUse.name, toolUse.input, sessionTabGroupId, mcpSession, {
         askBeforeActing,
         planScopeId: getPlanScopeId(sessionId),
@@ -1070,6 +1119,7 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
 
       await taskLog('TOOL_RESULT', `Result from ${toolUse.name}`, {
         tool: toolUse.name, toolUseId: toolUse.id, success: !isError,
+        durationMs: Date.now() - toolStartTime,
         resultType: isScreenshot ? 'screenshot' : typeof result,
         screenshot: isScreenshot ? `screenshot_${(mcpSession?.screenshots || uiSessionState.taskScreenshots).length + 1}.jpeg` : null,
         textResult: typeof result === 'string' ? result : null,

@@ -224,7 +224,7 @@ export async function handleEscalate(toolInput, deps) {
   const { sendEscalation, sessionId } = deps;
 
   if (!sessionId || !sendEscalation) {
-    return 'Escalation not available. Try a different approach on your own.';
+    return 'No planning system available. Do NOT navigate away from the current application or skip to the next job. Continue working on the current form:\n- Try the `computer` tool with direct left_click on any element that form_input fails on\n- Use keyboard navigation (Tab, Enter, arrow keys) to interact with custom dropdowns\n- Call read_page to re-assess the current page state\n- Skip optional fields that are already pre-filled with correct values\n- Only move to the next job after you see a clear application-submitted confirmation';
   }
 
   const response = await sendEscalation(

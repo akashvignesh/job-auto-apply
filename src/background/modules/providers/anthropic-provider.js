@@ -23,7 +23,7 @@ export class AnthropicProvider extends BaseProvider {
 
     // Add OAuth beta feature if using OAuth authentication
     if (this.config.authMethod === 'oauth') {
-      headers['anthropic-beta'] = 'oauth-2025-04-20';
+      headers['anthropic-beta'] = 'oauth-2025-04-20,prompt-caching-2024-10-22';
     }
 
     // Only add x-api-key if we have an API key (not using OAuth)
@@ -39,14 +39,30 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   buildRequestBody(messages, systemPrompt, tools, useStreaming) {
-    const cachedMessages = this._addConversationCaching(messages);
+    // Cache the static system prompt — identical on every call in a session
+    const cachedSystem = systemPrompt && systemPrompt.length > 0
+      ? systemPrompt.map((b, i) =>
+          i === systemPrompt.length - 1
+            ? { ...b, cache_control: { type: 'ephemeral' } }
+            : b
+        )
+      : systemPrompt;
+
+    // Cache the static tool definitions — also identical for the entire session
+    const cachedTools = tools && tools.length > 0
+      ? tools.map((t, i) =>
+          i === tools.length - 1
+            ? { ...t, cache_control: { type: 'ephemeral' } }
+            : t
+        )
+      : tools;
 
     return {
       model: this.config.model,
-      max_tokens: this.config.maxTokens || 10000,
-      system: systemPrompt,
-      tools: tools,
-      messages: cachedMessages,
+      max_tokens: this.config.maxTokens || 8192,
+      system: cachedSystem,
+      tools: cachedTools,
+      messages,
       stream: useStreaming,
       metadata: { user_id: 'browser_extension_user' },
     };
@@ -191,28 +207,4 @@ export class AnthropicProvider extends BaseProvider {
     return result;
   }
 
-  /**
-   * Add cache_control to the last assistant message for conversation caching
-   * @private
-   */
-  _addConversationCaching(messages) {
-    if (!messages || messages.length === 0) return messages;
-
-    // Deep clone to avoid mutating original
-    const cachedMessages = JSON.parse(JSON.stringify(messages));
-
-    // Find last assistant message
-    for (let i = cachedMessages.length - 1; i >= 0; i--) {
-      if (cachedMessages[i].role === 'assistant') {
-        const content = cachedMessages[i].content;
-        if (Array.isArray(content) && content.length > 0) {
-          // Add cache_control to the last content block
-          content[content.length - 1].cache_control = { type: 'ephemeral' };
-        }
-        break;
-      }
-    }
-
-    return cachedMessages;
-  }
 }

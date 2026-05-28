@@ -67,7 +67,7 @@ export async function handleReadPage(input) {
 
     const result = await withTimeout(
       extractDomState(tabId, sendDebuggerCommand, {
-        maxChars: max_chars ?? 50000,
+        maxChars: max_chars ?? 20000,
         includeScreenshot: true,
         documentDepth: 52,
         snapshotTimeoutMs: 22000,

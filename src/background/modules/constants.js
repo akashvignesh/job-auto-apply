@@ -17,8 +17,8 @@ export const RETRIES = {
 };
 
 export const LIMITS = {
-  LOG_DATA_CHARS: 2000, // Keep debug entries small - screenshots saved as separate files
-  LOG_ENTRIES: 200,
+  LOG_DATA_CHARS: 10000, // Increased: read_page DOM output is 5K-8K chars; 2K truncated useful data
+  LOG_ENTRIES: 2000,     // Increased: a 152-call run generates ~500 entries; 200 dropped oldest
   CLEAN_TURN_CONTENT: 2000,
   PAGE_TEXT_CHARS: 50000,
   CONSOLE_MESSAGES: 500,

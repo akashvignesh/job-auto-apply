@@ -5,168 +5,20 @@
  * Keeps only recent messages to prevent rate limits.
  */
 
-// Compaction prompt
-const ZEPHER_PROMPT = `Your task is to create a detailed summary of the conversation so far, with EXTREME EMPHASIS on preserving ALL user instructions, requirements, and feedback. User instructions are the most critical element and must be preserved verbatim when possible.
+// Compaction prompt — kept short to minimize output tokens (target: ~800 words / 1500 tokens)
+const ZEPHER_PROMPT = `Summarize this browser automation session concisely. Include:
 
-Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+1. USER TASK: The original request verbatim or near-verbatim. Include any DO NOT / MUST / ALWAYS instructions.
 
-1. CRITICAL - Extract ALL user instructions:
-   - The initial task definition (preserve as close to verbatim as possible)
-   - Any modifications or clarifications to the task
-   - Specific requirements, criteria, or rules they provided
-   - Warnings, constraints, or "DO NOT" instructions
-   - Any feedback that changed your approach
-   - Instructions about how to continue or when to stop
+2. APPLICATION PROGRESS (for job applications): Company, role, ATS platform. List every form section completed and the exact values entered (name, email, phone, work auth answers, years of experience, etc.).
 
-2. Identify if this is a REPEATABLE TASK WORKFLOW:
-   - Is there a pattern being repeated (e.g., reviewing multiple candidates, processing multiple items)?
-   - What is the atomic unit of work being repeated?
-   - What are the specific steps in each iteration?
-   - What decision criteria or rules are being applied consistently?
+3. CURRENT STATE: The exact URL and page/step we are on. What action was just taken.
 
-3. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
-   - The user's explicit requests and intents
-   - Your approach to addressing the user's requests
-   - Key browser interactions and automation steps
-   - Specific details like:
-     - URLs visited
-     - Elements clicked or interacted with
-     - Form data entered
-     - Screenshots taken
-     - Navigation patterns
-   - Errors that you ran into and how you fixed them
-   - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+4. ERRORS & FIXES: Any errors encountered and how they were resolved.
 
-4. Double-check that you have captured EVERY user instruction, especially:
-   - Initial requirements
-   - Process modifications
-   - Corrections to your behavior
-   - Explicit "IMPORTANT" or emphasized instructions
+5. NEXT ACTION: The single next thing to do to continue the task.
 
-Your summary should include the following sections:
-
-1. USER INSTRUCTIONS (MOST CRITICAL): Preserve verbatim or as close as possible:
-   - Complete initial task definition
-   - ALL specific requirements and criteria
-   - Every "IMPORTANT", "DO NOT", "ALWAYS", "MUST" instruction
-   - Process modifications and corrections
-   - Feedback that changed behavior
-   - Instructions about when/how to continue
-
-2. Task Template (if applicable): If this is a repeatable workflow, describe:
-   - The pattern/template of the repeated task
-   - Complete decision criteria and evaluation rules
-   - Standard workflow steps for each iteration
-   - Example of a completed iteration
-
-3. Constraints and Rules: Organize all user-specified rules:
-   - Critical constraints that must never be violated
-   - Specific acceptance/rejection criteria
-   - Process requirements and warnings
-   - Edge cases and exceptions
-
-4. Key Browser Context: Current page URL, domain, and any important page state
-
-5. Pages and Interactions: List all pages visited, elements interacted with, and actions taken
-
-6. Automation Steps: Document the sequence of browser automation steps performed
-
-7. Errors and fixes: List all errors that you ran into, and how you fixed them
-
-8. User Feedback History: Chronological list of:
-   - Initial instructions
-   - Corrections received
-   - Process refinements
-   - Confirmations or approvals
-
-9. Progress Tracking: For repeatable tasks:
-   - How many items have been processed
-   - Where we are in the current iteration
-   - Any items that need revisiting
-
-10. Current Work: Describe in detail precisely what was being worked on immediately before this summary request
-
-11. Next Step: For repeatable tasks, specify exactly where to resume (e.g., "Continue reviewing candidates starting with the next one in the queue")
-
-Here's an example of how your output should be structured:
-
-<example>
-<analysis>
-[Your thought process, identifying if this is a repeatable task, what the pattern is, and ensuring all points are covered thoroughly and accurately]
-</analysis>
-
-<summary>
-1. USER INSTRUCTIONS (MOST CRITICAL):
-   Initial Task: "[Verbatim or near-verbatim initial request from user]"
-
-   Key Requirements:
-   - [Specific requirement 1 as stated by user]
-   - [Specific requirement 2 as stated by user]
-
-   Critical Constraints:
-   - [Any DO NOT instruction from user]
-   - [Any MUST/ALWAYS instruction from user]
-
-   User Corrections/Feedback:
-   - [Any modification to original instructions]
-   - [Any correction to behavior]
-
-2. Task Template (if applicable):
-   - Pattern: Processing multiple items from a list/queue
-   - Decision Criteria:
-     * [Specific criteria for evaluation]
-     * [Required qualifications or attributes]
-     * [Disqualifying factors]
-   - Workflow Steps:
-     1. Navigate to item page
-     2. Review item details
-     3. Evaluate against criteria
-     4. Take appropriate action (approve/reject/modify)
-     5. Move to next item
-   - Example Iteration: [Brief description of one completed cycle]
-
-3. Constraints and Rules:
-   - IMPORTANT: [Key instructions that must always be followed]
-   - DO NOT: [Actions to avoid]
-   - ALWAYS: [Required behaviors]
-   - Edge cases: [Special handling instructions]
-
-4. Key Browser Context:
-   - Current URL: [Current page URL]
-   - Current Domain: [Domain]
-   - Page State: [Important state information]
-
-5. Pages and Interactions:
-   - [Page/Section]: [Actions taken]
-   - [Buttons/Forms]: [Interactions performed]
-
-6. Automation Steps:
-   - [Step-by-step workflow description]
-
-7. Errors and fixes:
-   - [Error description]: [How it was resolved]
-   - [User feedback on errors if any]
-
-8. User Feedback History:
-   - Initial: [Complete task definition]
-   - Corrections: [Any process refinements]
-   - Feedback: [Important guidance received]
-
-9. Progress Tracking:
-   - Processed: [Number and summary of items completed]
-   - Current: [What's being worked on now]
-   - Remaining: [What's left to do]
-
-10. Current Work:
-   [Precise description of the immediate task being performed]
-
-11. Next Step:
-   [Exactly what should be done next to continue the workflow]
-
-</summary>
-</example>
-
-Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.`;
+Be specific about form field values already filled — the agent must not re-fill them. Keep the summary under 800 words.`;
 
 // Estimate ~800 tokens per image (maxTargetTokens is 768, slight buffer for encoding)
 const IMAGE_TOKEN_ESTIMATE = 800;

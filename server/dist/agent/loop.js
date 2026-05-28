@@ -16,6 +16,48 @@
 import { callLLM } from "../llm/client.js";
 import { AGENT_TOOLS } from "./tools.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+// --- Token Reduction Helpers ---
+const CONTEXT_WINDOW_SIZE = 20;
+/**
+ * Strip base64 images from all but the most recent `keepLast` tool-result messages.
+ * Does not mutate the original array.
+ */
+function pruneOldScreenshots(messages, keepLast = 2) {
+    const imageMessageIndices = [];
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.role === "user" && Array.isArray(msg.content)) {
+            const hasImage = msg.content.some((b) => b.type === "tool_result" &&
+                Array.isArray(b.content) &&
+                b.content.some((c) => c.type === "image"));
+            if (hasImage)
+                imageMessageIndices.push(i);
+        }
+    }
+    const toStrip = new Set(imageMessageIndices.slice(0, -keepLast));
+    if (toStrip.size === 0)
+        return messages;
+    return messages.map((msg, i) => {
+        if (!toStrip.has(i))
+            return msg;
+        const content = msg.content.map((block) => {
+            if (block.type !== "tool_result" || !Array.isArray(block.content))
+                return block;
+            return { ...block, content: block.content.filter((c) => c.type !== "image") };
+        });
+        return { ...msg, content };
+    });
+}
+/**
+ * Keep only the first message (original task) + the last `windowSize` messages.
+ * Prevents unbounded context growth on long multi-step tasks.
+ * Does not mutate the original array.
+ */
+function windowMessages(messages, windowSize = CONTEXT_WINDOW_SIZE) {
+    if (messages.length <= windowSize + 1)
+        return messages;
+    return [messages[0], ...messages.slice(-windowSize)];
+}
 // --- Agent Loop ---
 export async function runAgentLoop(params) {
     const { task, url, context, executeTool, onStep, onText, maxSteps = 50, signal, } = params;
@@ -48,11 +90,12 @@ export async function runAgentLoop(params) {
             };
         }
         onStep?.({ step, status: "thinking" });
-        // Call LLM
+        // Call LLM — prune stale screenshots and window history to cap context size
+        const messagesForCall = windowMessages(pruneOldScreenshots(messages, 2));
         let response;
         try {
             response = await callLLM({
-                messages,
+                messages: messagesForCall,
                 system,
                 tools,
                 signal,

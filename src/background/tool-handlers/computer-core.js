@@ -487,26 +487,9 @@ export async function handleComputer(input) {
             await new Promise((resolve) => setTimeout(resolve, 200));
           }
 
-          // Automatically capture a screenshot after scrolling
-          // Source: tools-and-permissions.js lines 6055-6074
-          const screenshotResult = await (async () => {
-            try {
-              const screenshot = await handleScreenshot(tabId);
-              return screenshot.base64Image
-                ? { base64Image: screenshot.base64Image, imageFormat: screenshot.imageFormat || "png" }
-                : undefined;
-            } catch {
-              return undefined;
-            }
-          })();
-
           const scrollMode = antiBot ? " (human-like)" : "";
           result = {
             output: `Scrolled ${direction} by ${amount} ticks at (${x}, ${y})${scrollMode}`,
-            ...(screenshotResult && {
-              base64Image: screenshotResult.base64Image,
-              imageFormat: screenshotResult.imageFormat,
-            }),
           };
         } catch (err) {
           result = {

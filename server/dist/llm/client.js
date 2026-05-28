@@ -16,7 +16,7 @@ import { callVertexLLM, isVertexConfigured } from "./vertex.js";
 // ─── Config ─────────────────────────────────────────────────────────────────
 /** Default model — Claude Haiku 4.5 is fast and cheap; swap to sonnet/opus as needed */
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
-const DEFAULT_MAX_TOKENS = 16384;
+const DEFAULT_MAX_TOKENS = 4096;
 let cachedSource = null;
 function getSource() {
     if (!cachedSource)
@@ -41,7 +41,7 @@ function buildClient(source) {
             authToken: source.credentials.accessToken,
             defaultHeaders: {
                 "anthropic-dangerous-direct-browser-access": "true",
-                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
+                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-2024-10-22",
                 "x-app": "cli",
                 "user-agent": "claude-code/2.1.29",
             },
@@ -64,8 +64,12 @@ export async function callLLM(params) {
     }
     const { messages, system, tools, model = DEFAULT_MODEL, maxTokens = DEFAULT_MAX_TOKENS, signal, onText, } = params;
     let source = getSource();
-    // Flatten system blocks to a single string (SDK accepts string for system)
-    const systemText = system.map((s) => s.text).join("\n\n");
+    // Pass system blocks as array to preserve cache_control markers for prompt caching
+    const systemBlocks = system.map((s) => ({
+        type: "text",
+        text: s.text,
+        ...(s.cache_control ? { cache_control: s.cache_control } : {}),
+    }));
     // Our Message type is structurally identical to Anthropic.MessageParam
     const sdkMessages = messages;
     // Map our Tool type to the SDK's Tool shape
@@ -74,6 +78,10 @@ export async function callLLM(params) {
         description: t.description,
         input_schema: t.input_schema,
     }));
+    // Cache all tool definitions as a unit by marking the last tool
+    if (sdkTools.length > 0) {
+        sdkTools[sdkTools.length - 1].cache_control = { type: "ephemeral" };
+    }
     /**
      * Perform one SDK call. Extracted so we can retry after a token refresh.
      */
@@ -82,7 +90,7 @@ export async function callLLM(params) {
         const stream = client.messages.stream({
             model,
             max_tokens: maxTokens,
-            system: systemText,
+            system: systemBlocks,
             messages: sdkMessages,
             ...(sdkTools.length > 0 && { tools: sdkTools }),
         }, { signal: signal });

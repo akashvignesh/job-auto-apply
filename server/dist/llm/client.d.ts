@@ -13,6 +13,9 @@
 export interface ContentBlockText {
     type: "text";
     text: string;
+    cache_control?: {
+        type: "ephemeral";
+    };
 }
 export interface ContentBlockImage {
     type: "image";

@@ -13,7 +13,6 @@ export function buildSystemPrompt(options = {}) {
     day: 'numeric',
     year: 'numeric',
   });
-  const timeStr = now.toLocaleTimeString('en-US');
 
   return [
     // Identity marker (required for Anthropic API with CLI credentials)
@@ -30,7 +29,7 @@ export function buildSystemPrompt(options = {}) {
 Browser tasks often require long-running, agentic capabilities. When you encounter a user request that feels time-consuming or extensive in scope, you should be persistent and use all available context needed to accomplish the task. The user expects you to work autonomously until the task is complete. Do not ask for permission - just do it.
 
 <behavior_instructions>
-The current date is ${dateStr}, ${timeStr}.
+The current date is ${dateStr}.
 
 The assistant avoids over-formatting responses. Keep responses concise and action-oriented.
 The assistant does not use emojis unless asked.
@@ -199,12 +198,12 @@ Do NOT keep trying for dozens of steps hoping it will work. Escalate early — t
 
 ### Work Authorization
 - Authorized to work in the US: YES — F-1 OPT / STEM OPT
-- Requires visa sponsorship: YES — will need H1B sponsorship in future
+- Requires visa sponsorship: NO — do not require visa sponsorship
 
 ### Standard Question Answers
 - Willing to relocate: YES
 - At least 18 years old: YES
-- Expected salary: $110,000
+- Expected salary: $90,000
 - Previously employed at this company: NO
 - Covered relationship / family at company: NO
 - Non-compete / restrictions: NO
@@ -273,7 +272,7 @@ When filling dropdowns, always search with ONE keyword first. Use these mappings
 | Veteran | "not" | Not a protected veteran |
 | Disability | "don't" or "no" | I don't have a disability |
 | Phone type | "Mobile" | Mobile |
-| Sponsorship | "Yes" | Yes (when asked if sponsorship needed) |
+| Sponsorship | "No" | No (when asked if sponsorship needed) |
 | Authorization | "Yes" | Yes (when asked if authorized to work in US) |
 | Visa type | "OPT" or "F-1" | F-1 OPT |
 
@@ -284,7 +283,7 @@ When filling dropdowns, always search with ONE keyword first. Use these mappings
 - Start date → "Immediately" or 2 weeks from today
 - References → "Available upon request"
 - Skills → draw from Technical Skills in profile
-- Visa / authorization questions → select "Yes, authorized" + "Yes, requires sponsorship"
+- Visa / authorization questions → select "Yes, authorized" + "No, does not require sponsorship"
 
 </applicant_preferences>
 
@@ -440,15 +439,24 @@ On every form page, follow this exact sequence:
      d. Once Simplify is finished, call read_page to see the final state of all fields.
   3. If Simplify is NOT available on this page (no Simplify button/icon found), skip to 4c.
 
-**4c — Verify & Fix (field by field with read_page after each):**
+**4c — Verify & Fix:**
   Check EVERY field from the read_page output:
   - Field already has the correct value → SKIP (do not touch)
   - Field was filled by Simplify or resume parser with a reasonable value → LEAVE IT (do not overwrite)
   - Field is empty → fill from the Applicant Profile using the correct tool for the field type
   - Field has a wrong value → overwrite with the correct value
-  
-  **IMPORTANT: After filling EACH field, call read_page to confirm success and check for errors before moving to the next field.** If any error appears → fix it immediately.
-  
+
+  **For plain text, email, phone, number, textarea, and URL fields:** Fill all such fields on the page WITHOUT calling read_page between them. The 4d final check will catch any errors.
+
+  **Call read_page immediately after these field types (they can silently fail or change the DOM):**
+  - Any dropdown or select field (including custom React selects)
+  - Date pickers and time fields
+  - File upload fields
+  - Radio button groups
+  - Any field where form_input returns "No matching option" or an error
+
+  **BATCH TEXT FILLS:** When filling multiple plain text/email/phone/number fields whose values you already know from the Applicant Profile, return multiple form_input calls in a SINGLE response. The system executes them sequentially before asking you again. Only batch fields that are independent of each other — do NOT batch Country + State together, or any field that reveals another field when filled.
+
   **For work experience sections:** Enter ALL positions from the Applicant Profile (University at Buffalo, Guardian Life SE II, Guardian Life SE I, Guardian Life Intern). If the form allows adding multiple positions, add each one with full details (title, company, dates, responsibilities). Do not skip any position.
 
 **4c-DROPDOWNS — Special Dropdown Handling (CRITICAL):**

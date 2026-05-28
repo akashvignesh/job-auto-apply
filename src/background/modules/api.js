@@ -32,6 +32,17 @@ let abortController = null;
 // API call counter for debugging
 let apiCallCounter = 0;
 
+// Haiku 4.5 pricing (USD per token). Used for per-call cost logging.
+function calcApiCostUsd(usage) {
+  if (!usage) return '0.000000';
+  return (
+    (usage.input_tokens || 0) * 0.80 / 1_000_000 +
+    (usage.output_tokens || 0) * 4.00 / 1_000_000 +
+    (usage.cache_creation_input_tokens || 0) * 1.00 / 1_000_000 +
+    (usage.cache_read_input_tokens || 0) * 0.08 / 1_000_000
+  ).toFixed(6);
+}
+
 // Native host port for OAuth proxy (reused across API calls)
 let nativeHostPort = null;
 
@@ -624,6 +635,7 @@ async function callLLMThroughRelayProxy(messages, onTextChunk = null, log = () =
     messages: messages.length,
     stopReason: streamResult.stop_reason,
     tokens: streamResult.usage,
+    costUsd: calcApiCostUsd(streamResult.usage),
     duration: `${duration}ms`,
   });
 
@@ -774,6 +786,7 @@ async function callLLMThroughProxyOnce(messages, onTextChunk = null, log = () =>
           messages: messages.length,
           stopReason: streamResult.stop_reason,
           tokens: streamResult.usage,
+          costUsd: calcApiCostUsd(streamResult.usage),
           duration: `${duration}ms`,
         });
 
@@ -796,6 +809,7 @@ async function callLLMThroughProxyOnce(messages, onTextChunk = null, log = () =>
             messages: messages.length,
             stopReason: result.stop_reason,
             tokens: result.usage,
+            costUsd: calcApiCostUsd(result.usage),
             duration: `${duration}ms`,
           });
 
@@ -1305,6 +1319,7 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
       messages: messages.length,
       stopReason: result.stop_reason,
       tokens: result.usage,
+      costUsd: calcApiCostUsd(result.usage),
       duration: `${duration}ms`,
     });
 
