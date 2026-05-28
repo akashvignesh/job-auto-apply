@@ -797,6 +797,46 @@ async function injectMcpMessages(mcpSession, mcpMessagesInjected, messages, init
  * @param {number|null} [initialTabGroupId] - Optional initial tab group ID from client
  * @returns {Promise<Object>} Task result with {success: boolean, message: string, error?: string}
  */
+/**
+ * Build a stable loop-detection key for a tool invocation.
+ * Returns null for tools/inputs that are expected to repeat (read_page, tabs_context, scrolls).
+ * URL is stripped of query string so the key survives session/tracking param churn.
+ */
+function buildLoopKey(toolName, input, url) {
+  const urlPart = (url || '').split('?')[0];
+  if (toolName === 'computer') {
+    const action = input?.action || '';
+    if (action === 'left_click') return `click:${input?.ref || input?.coordinate || ''}@${urlPart}`;
+    return null;
+  }
+  if (toolName === 'form_input') return `form:${input?.ref || ''}=${String(input?.value || '').slice(0, 24)}@${urlPart}`;
+  if (toolName === 'navigate') return `nav:${input?.url || ''}`;
+  if (toolName === 'file_upload') return `upload:${input?.ref || ''}@${urlPart}`;
+  return null;
+}
+
+/**
+ * Detect action loops by counting repeated (tool+input+url) keys in recent assistant turns.
+ * Returns { key, count } if any action repeated 4+ times in the last 8 assistant messages, else null.
+ */
+function detectActionLoop(messages, currentTabUrl) {
+  const recentAssistant = messages.filter(m => m.role === 'assistant').slice(-8);
+  const counts = new Map();
+  for (const m of recentAssistant) {
+    if (!Array.isArray(m.content)) continue;
+    for (const block of m.content) {
+      if (block.type !== 'tool_use') continue;
+      const key = buildLoopKey(block.name, block.input, currentTabUrl);
+      if (!key) continue;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  for (const [key, count] of counts) {
+    if (count >= 4) return { key, count };
+  }
+  return null;
+}
+
 // eslint-disable-next-line complexity, sonarjs/cognitive-complexity
 async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBeforeActing = true, existingHistory = [], initialTabGroupId = null, mcpSession = null) {
   const sessionId = mcpSession?.sessionId || null;
@@ -883,6 +923,10 @@ ${mcpSession.context}</system-reminder>`,
   let messages = [...existingHistory, { role: 'user', content: userContent }];
   let steps = 0;
   const filledFieldsCache = new Map(); // Track ref→value for successful form fills to prevent re-fills
+  const loopWarnedKeys = new Set(); // Loop-detection: keys we've already warned the agent about
+  let sameUrlStreak = 0;            // Consecutive turns on the same URL (no navigation)
+  let lastStreakUrl = null;         // URL the streak is counting
+  let sameUrlWarnedAt = 0;          // Streak length at which we last warned (avoid spamming)
   // maxSteps: 0 means unlimited, otherwise use configured value or default to 100
   const configMaxSteps = getConfig().maxSteps;
   const maxSteps = configMaxSteps === 0 ? Infinity : (configMaxSteps || 100);
@@ -907,6 +951,17 @@ ${mcpSession.context}</system-reminder>`,
     currentTabUrl = freshCtx.currentTabUrl;
     _logTurn = steps;
     _logUrl = currentTabUrl;
+
+    // Same-URL stall detection: many turns on one URL with no navigation usually means the
+    // agent is stuck behind an overlay/modal it can't see, or repeatedly clicking a dead
+    // element. Track the streak; the warning is injected after tool results below.
+    if (currentTabUrl && currentTabUrl === lastStreakUrl) {
+      sameUrlStreak++;
+    } else {
+      sameUrlStreak = 1;
+      lastStreakUrl = currentTabUrl;
+      sameUrlWarnedAt = 0;
+    }
 
     // Calculate token count for monitoring
     const currentTokens = calculateContextTokens(messages);
@@ -1192,6 +1247,28 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
 
       toolResults.push(toolResult);
       onUpdate(updatePayload);
+    }
+
+    // Loop detection: if the agent has been doing the same thing 4+ times, nudge it to change tactics
+    const loop = detectActionLoop(messages, currentTabUrl);
+    if (loop && !loopWarnedKeys.has(loop.key)) {
+      loopWarnedKeys.add(loop.key);
+      await taskLog('LOOP_DETECTED', `Action repeated ${loop.count}x: ${loop.key}`);
+      toolResults.push({
+        type: 'text',
+        text: `<system-reminder>Loop detected: you have repeated the same action ${loop.count} times (${loop.key}). It is not working. STOP this approach. Choose ONE: (a) call escalate with what you have tried, (b) try a fundamentally different approach (different tool, different selector, keyboard navigation), or (c) if you are clicking Apply/Apply Now repeatedly, call tabs_context — a new tab probably already opened. Do NOT repeat this action again.</system-reminder>`,
+      });
+    }
+
+    // Same-URL stall: warn once at 8 turns, again at 14. Most common cause is an unseen modal
+    // overlay (e.g. JobRight's "Did you apply?" dialog) blocking the page behind it.
+    if (sameUrlStreak >= 8 && sameUrlStreak > sameUrlWarnedAt && (sameUrlStreak === 8 || sameUrlStreak >= 14)) {
+      sameUrlWarnedAt = sameUrlStreak;
+      await taskLog('LOOP_DETECTED', `Stuck on same URL for ${sameUrlStreak} turns: ${currentTabUrl}`);
+      toolResults.push({
+        type: 'text',
+        text: `<system-reminder>You have spent ${sameUrlStreak} turns on the same URL with no navigation. You are likely blocked by a modal/dialog/overlay you have not handled, or clicking an element behind it. Take a screenshot now (read_page with screenshot=true) to SEE the overlay. If a dialog like "Did you apply?" is present, click its button (e.g. "Yes, I applied") to dismiss it before doing anything else. Do NOT keep clicking the page behind the overlay.</system-reminder>`,
+      });
     }
 
     messages.push({ role: 'user', content: toolResults });

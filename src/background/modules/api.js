@@ -572,7 +572,7 @@ async function callLLMThroughRelayProxy(messages, onTextChunk = null, log = () =
   const provider = createProvider(callConfig.apiBaseUrl || '', callConfig);
   const isClaudeModel = provider.getName() === 'anthropic';
   const systemPrompt = buildSystemPrompt({ isClaudeModel });
-  const tools = getToolsForUrl(currentUrl);
+  const tools = callConfig.disableTools ? [] : getToolsForUrl(currentUrl);
 
   // Always stream for OAuth (required by Claude Code credentials)
   const requestBody = provider.buildRequestBody(messages, systemPrompt, tools, true);
@@ -710,7 +710,7 @@ async function callLLMThroughProxyOnce(messages, onTextChunk = null, log = () =>
 
   // Filter tools based on current URL (hides domain-specific tools on non-matching sites)
   // Always use getToolsForUrl to ensure _domains property is stripped (API rejects unknown properties)
-  const tools = getToolsForUrl(currentUrl);
+  const tools = callConfig.disableTools ? [] : getToolsForUrl(currentUrl);
 
   const requestBody = provider.buildRequestBody(messages, systemPrompt, tools, useStreaming);
   const apiUrl = provider.buildUrl(useStreaming);
@@ -1161,6 +1161,12 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
     ...(options.modelOverride ? { model: options.modelOverride } : {}),
   }));
 
+  // When disableTools is set (e.g. conversation compaction), the model must return a plain
+  // text summary — not call tools. Passing the tool schema makes the model invoke tools
+  // instead, which yields empty text and breaks compaction. Carry the flag on the config so
+  // the relay/proxy/direct paths all see it.
+  effectiveConfig.disableTools = options.disableTools === true;
+
   // Debug: log config values
   console.log('[API] Config loaded:', {
     apiBaseUrl: effectiveConfig.apiBaseUrl,
@@ -1187,7 +1193,7 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
 
   // Filter tools based on current URL (hides domain-specific tools on non-matching sites)
   // Always use getToolsForUrl to ensure _domains property is stripped (API rejects unknown properties)
-  const tools = getToolsForUrl(currentUrl);
+  const tools = effectiveConfig.disableTools ? [] : getToolsForUrl(currentUrl);
 
   // Get URL for early routing checks (OAuth proxy, Codex fallback)
   // Full request body is built later after potential config changes
@@ -1228,7 +1234,7 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
   const activeProvider = createProvider(effectiveConfig.apiBaseUrl || '', effectiveConfig);
   const activeIsClaudeModel = activeProvider.getName() === 'anthropic';
   const activeSystemPrompt = buildSystemPrompt({ isClaudeModel: activeIsClaudeModel });
-  const activeTools = getToolsForUrl(currentUrl);
+  const activeTools = effectiveConfig.disableTools ? [] : getToolsForUrl(currentUrl);
   const activeRequestBody = activeProvider.buildRequestBody(messages, activeSystemPrompt, activeTools, useStreaming);
   const activeApiUrl = activeProvider.buildUrl(useStreaming);
 

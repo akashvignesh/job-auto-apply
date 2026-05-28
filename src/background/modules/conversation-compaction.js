@@ -18,7 +18,18 @@ const ZEPHER_PROMPT = `Summarize this browser automation session concisely. Incl
 
 5. NEXT ACTION: The single next thing to do to continue the task.
 
-Be specific about form field values already filled — the agent must not re-fill them. Keep the summary under 800 words.`;
+CRITICAL: Only mark a form section, field, or step as completed if the history shows EXPLICIT success confirmation — e.g., "Selected X", "Set text to Y", "Application submitted", "uploaded", "verified". If a step was started or attempted but not explicitly confirmed complete, mark it IN-PROGRESS. Never infer completion from context. Saying an application was submitted when it wasn't is a critical failure.
+
+Be specific about form field values already filled — the agent must not re-fill them. Keep the summary under 800 words (6000 characters maximum).`;
+
+// Hard cap on summary length (matches browser-use's summary_max_chars default).
+// If the model ignores the word limit in ZEPHER_PROMPT, we truncate here.
+const SUMMARY_MAX_CHARS = 6000;
+
+// Keep the most-recent N read_page tool_use+result pairs intact during summarization.
+// Older read_page results are replaced with a tiny placeholder to shrink the summarization
+// input (each read_page result is ~5-20K chars of DOM text, mostly stale by the time we compact).
+const KEEP_RECENT_READ_PAGE_RESULTS = 2;
 
 // Estimate ~800 tokens per image (maxTargetTokens is 768, slight buffer for encoding)
 const IMAGE_TOKEN_ESTIMATE = 800;
@@ -29,13 +40,16 @@ const IMAGE_TOKEN_ESTIMATE = 800;
 // - API overhead: ~500 tokens
 const OVERHEAD_TOKENS = 6500;
 
-// Threshold for triggering compaction
-// Context window is 200K, but we need buffer for:
-// - Response generation (max_tokens, typically 10K)
-// - Overhead (system prompt, tools)
-// - Safety margin for tokenization variance
-// Real usable limit: 200K - 10K (response) - 6.5K (overhead) = ~183.5K
-const COMPACTION_THRESHOLD = 170000;
+// Threshold for triggering compaction.
+//
+// Set as a COST optimization, not a context-window emergency brake.
+// browser-use compacts at ~10K-equivalent tokens (40K chars). We pick 30K total tokens
+// (with ~6.5K overhead, that's ~23.5K of actual message content) so compaction fires
+// roughly once per job application, keeping the growing-cache-read cost in check.
+//
+// Trade-off: each compaction costs one LLM summarization call (~$0.005 with Haiku 4.5),
+// but it caps cache-read volume on subsequent turns. Worth it when a session runs 50+ turns.
+const COMPACTION_THRESHOLD = 30000;
 
 /**
  * Estimate tokens for text content
@@ -155,6 +169,57 @@ function extractTextFromResponse(response) {
 }
 
 /**
+ * Replace stale read_page tool_result content with a short placeholder.
+ *
+ * Only the N most-recent read_page results are kept verbatim — older ones contain
+ * DOM snapshots that are no longer accurate (the page has navigated/changed since).
+ * Each pruned result drops ~5-20K chars from the summarization input, making the
+ * summarizer LLM call cheaper without losing information (stale DOM has no value).
+ *
+ * This runs ONLY inside compactConversation — it shapes the input to the summarizer.
+ * The live conversation history is not mutated by this function; compaction's own
+ * "replace bulk of messages with summary" step handles the live history.
+ *
+ * @param {Array<Object>} messages - Messages to process
+ * @param {number} keepRecent - Number of most-recent read_page results to keep intact
+ * @returns {Array<Object>} Messages with old read_page results replaced
+ */
+function prunePastReadPageResults(messages, keepRecent = KEEP_RECENT_READ_PAGE_RESULTS) {
+  // Pass 1: collect all read_page tool_use IDs in chronological order
+  const readPageIds = [];
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_use' && block.name === 'read_page') {
+        readPageIds.push(block.id);
+      }
+    }
+  }
+  if (readPageIds.length <= keepRecent) return messages;
+
+  // IDs to prune = all except the last `keepRecent`
+  const idsToPrune = new Set(readPageIds.slice(0, readPageIds.length - keepRecent));
+
+  // Pass 2: replace matching tool_result content with placeholder text
+  return messages.map(msg => {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg;
+    let touched = false;
+    const newContent = msg.content.map(block => {
+      if (block.type === 'tool_result' && idsToPrune.has(block.tool_use_id)) {
+        touched = true;
+        return {
+          type: 'tool_result',
+          tool_use_id: block.tool_use_id,
+          content: '[read_page result pruned — DOM was stale by compaction time; only the most recent read_page reflects the current page]',
+        };
+      }
+      return block;
+    });
+    return touched ? { ...msg, content: newContent } : msg;
+  });
+}
+
+/**
  * Strip images from messages for summarization
  * Keeps text descriptions but removes base64 image data
  * @param {Array<Object>} messages - Messages to process
@@ -197,9 +262,12 @@ export async function compactConversation(messages, callLLM, log) {
   const originalTokens = calculateContextTokens(messages);
   await log('COMPACT', `Starting compaction of ${originalTokens.toLocaleString()} tokens...`);
 
-  // Strip images from messages for summarization to avoid token limits
-  // We keep only text content for the summary generation
-  const messagesForSummary = stripImagesForSummarization(messages);
+  // Shrink the summarization input: prune stale read_page DOM dumps + strip images.
+  // These two steps make the summarizer call dramatically cheaper without losing signal —
+  // old DOM is invalid by the time we compact, and screenshots are already textually
+  // described in surrounding tool results.
+  const prunedMessages = prunePastReadPageResults(messages);
+  const messagesForSummary = stripImagesForSummarization(prunedMessages);
 
   // Add summarization request to messages
   const messagesToSummarize = [
@@ -210,14 +278,23 @@ export async function compactConversation(messages, callLLM, log) {
     },
   ];
 
-  // Call LLM to create summary (without images, should fit in context)
-  const summaryResponse = await callLLM(messagesToSummarize, null, log);
+  // Call LLM to create summary. disableTools is critical: with the tool schema present the
+  // model invokes a tool instead of writing the summary, returning empty text — which is what
+  // caused the silent "No text content in summary response" failures and forced emergency
+  // compaction (context loss).
+  const summaryResponse = await callLLM(messagesToSummarize, null, log, null, null, { disableTools: true });
 
   // Extract summary text
-  const summaryText = extractTextFromResponse(summaryResponse);
+  let summaryText = extractTextFromResponse(summaryResponse);
 
   if (!summaryText) {
     throw new Error('No text content in summary response');
+  }
+
+  // Hard cap summary length — protect against the model ignoring the word limit in ZEPHER_PROMPT.
+  if (summaryText.length > SUMMARY_MAX_CHARS) {
+    await log('COMPACT', `Summary exceeded ${SUMMARY_MAX_CHARS} chars, truncating from ${summaryText.length}`);
+    summaryText = summaryText.slice(0, SUMMARY_MAX_CHARS).trimEnd() + '…';
   }
 
   // Format summary for user message

@@ -79,7 +79,7 @@ const AX_ROLES_VISIBLE_WITHOUT_SNAPSHOT = new Set([
   'listbox', 'gridcell', 'cell', 'row',
 ]);
 
-function isNodeVisible(snapshotNode, absolutePosition, viewportHeight, viewportThreshold = 10000) {
+function isNodeVisible(snapshotNode, absolutePosition, viewportHeight, viewportThreshold = 1500) {
   if (!snapshotNode) return false;
 
   const styles = snapshotNode.computedStyles;

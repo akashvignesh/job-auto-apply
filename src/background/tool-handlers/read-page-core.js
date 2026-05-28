@@ -45,10 +45,11 @@ async function withTimeout(promise, ms, label) {
  * @param {Object} input - Tool input
  * @param {number} input.tabId - Tab ID to read from
  * @param {number} [input.max_chars] - Max output chars (default: 50000)
+ * @param {boolean} [input.screenshot] - Include screenshot (default: false, opt-in for token savings)
  * @returns {Promise<{output?: string, error?: string}>}
  */
 export async function handleReadPage(input) {
-  const { tabId, max_chars } = input || {};
+  const { tabId, max_chars, screenshot } = input || {};
 
   if (!tabId) {
     throw new Error('No active tab found');
@@ -59,6 +60,12 @@ export async function handleReadPage(input) {
     throw new Error('Active tab has no ID');
   }
 
+  // Clamp max_chars: the agent occasionally requests huge values (e.g. 80000) which inflate
+  // cost without helping — modals are hoisted to the top and the relevant form fields fit well
+  // under 30K. Cap defends against runaway reads.
+  const MAX_CHARS_CEILING = 30000;
+  const effectiveMaxChars = Math.min(max_chars ?? 20000, MAX_CHARS_CEILING);
+
   try {
     const attached = await ensureDebugger(tabId);
     if (!attached) {
@@ -67,8 +74,8 @@ export async function handleReadPage(input) {
 
     const result = await withTimeout(
       extractDomState(tabId, sendDebuggerCommand, {
-        maxChars: max_chars ?? 20000,
-        includeScreenshot: true,
+        maxChars: effectiveMaxChars,
+        includeScreenshot: screenshot === true,
         documentDepth: 52,
         snapshotTimeoutMs: 22000,
         documentTimeoutMs: 22000,

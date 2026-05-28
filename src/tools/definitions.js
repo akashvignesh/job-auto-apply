@@ -13,7 +13,7 @@ export const CLAUDE_ONLY_TOOLS = ['turn_answer_start', 'update_plan'];
 export const TOOL_DEFINITIONS = [
   {
     name: 'read_page',
-    description: `Get a rich DOM tree of the page via Chrome DevTools Protocol. Captures immediately (no built-in wait for page load or spinners). If the DOM looks empty, call read_page again after a short pause. Returns interactive elements with numeric backendNodeId references (e.g., [42]<button>Submit</button>). IMPORTANT: Only use element IDs from the CURRENT output — IDs change between calls. Pierces shadow DOM and iframes automatically. tabId is optional — if omitted, the active tab is used automatically.`,
+    description: `Get a rich DOM tree of the page via Chrome DevTools Protocol. Captures immediately (no built-in wait for page load or spinners). If the DOM looks empty, call read_page again after a short pause. Returns interactive elements with numeric backendNodeId references (e.g., [42]<button>Submit</button>). IMPORTANT: Only use element IDs from the CURRENT output — IDs change between calls. Pierces shadow DOM and iframes automatically. tabId is optional — if omitted, the active tab is used automatically. By default no screenshot is included (saves ~1800 tokens per call); pass screenshot=true only when you need visual context (Google Docs/Figma/Canva-style apps, or when the DOM is unclear).`,
     input_schema: {
       type: 'object',
       properties: {
@@ -23,7 +23,11 @@ export const TOOL_DEFINITIONS = [
         },
         max_chars: {
           type: 'number',
-          description: 'Maximum characters for output (default: 50000). Set to a higher value if your client can handle large outputs.',
+          description: 'Maximum characters for output (default: 20000, capped at 30000). Modals/dialogs are auto-hoisted to the top of the output, so you do not need a large value to see overlays.',
+        },
+        screenshot: {
+          type: 'boolean',
+          description: 'Include a screenshot with the DOM. Default false. Set true only when the DOM alone is insufficient (visual apps, ambiguous layout, or debugging). Each screenshot costs ~1800 tokens.',
         },
       },
       required: [],
@@ -209,7 +213,7 @@ export const TOOL_DEFINITIONS = [
         },
         max_chars: {
           type: 'number',
-          description: 'Maximum characters for output (default: 50000). Set to a higher value if your client can handle large outputs.',
+          description: 'Maximum characters for output (default: 50000).',
         },
       },
       required: [],

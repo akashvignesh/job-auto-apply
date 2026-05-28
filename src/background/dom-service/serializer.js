@@ -209,12 +209,46 @@ function buildAttributesString(node) {
  * @param {number} [options.maxChars=40000] - Cap output at this many characters
  * @returns {{ text: string, selectorMap: Map<number, Object> }}
  */
+/**
+ * Detect modal/dialog/overlay nodes. These block interaction with the page behind them,
+ * so the agent must see and handle them first. role/aria-modal are strong signals on their
+ * own; class-name matching is only trusted for visible elements to avoid false positives
+ * from hidden template markup.
+ */
+function isDialog(node) {
+  if (node.nodeType !== NODE_ELEMENT) return false;
+  const role = node.attributes?.role || node.axNode?.role;
+  if (role === 'dialog' || role === 'alertdialog') return true;
+  if (node.attributes?.['aria-modal'] === 'true') return true;
+  if (node.isVisible) {
+    const cls = (node.attributes?.class || '').toLowerCase();
+    if (/(^|[-_ ])(modal|dialog|overlay|popup)([-_ ]|$)/.test(cls)) return true;
+  }
+  return false;
+}
+
+/**
+ * Find the outermost dialog/overlay nodes (does not recurse into a dialog to find nested ones).
+ */
+function collectDialogs(node, out) {
+  if (!node) return;
+  if (node.nodeType === NODE_ELEMENT && isDialog(node)) {
+    out.push(node);
+    return;
+  }
+  if (node.shadowRoots) for (const sr of node.shadowRoots) collectDialogs(sr, out);
+  if (node.children) for (const c of node.children) collectDialogs(c, out);
+  if (node.contentDocument) collectDialogs(node.contentDocument, out);
+}
+
 export function serializeDomTree(root, options = {}) {
   const { maxChars = 40000 } = options;
   const selectorMap = new Map();
   const lines = [];
   let charCount = 0;
   let truncated = false;
+  const hoistedDialogIds = new Set(); // backendNodeIds already emitted in the hoist pass
+  let inDialogPass = false;
 
   // eslint-disable-next-line sonarjs/cognitive-complexity
   function serialize(node, depth) {
@@ -223,6 +257,12 @@ export function serializeDomTree(root, options = {}) {
 
     const tag = (node.nodeName || '').toUpperCase();
     const indent = '\t'.repeat(depth);
+
+    // During the main pass, skip dialog subtrees already emitted at the top (avoid duplication).
+    if (!inDialogPass && node.nodeType === NODE_ELEMENT && node.backendNodeId
+        && hoistedDialogIds.has(node.backendNodeId)) {
+      return;
+    }
 
     // Document nodes (type 9) and DocumentType nodes (type 10) — just traverse children
     if (node.nodeType === NODE_DOCUMENT || node.nodeType === 10) {
@@ -339,6 +379,23 @@ export function serializeDomTree(root, options = {}) {
     if (node.contentDocument) {
       serialize(node.contentDocument, depth);
     }
+  }
+
+  // Hoist modals/dialogs to the very top so they survive truncation. An overlay blocks every
+  // element behind it, so the agent must read and dismiss it before anything else works.
+  const dialogRoots = [];
+  collectDialogs(root, dialogRoots);
+  if (dialogRoots.length > 0) {
+    inDialogPass = true;
+    lines.push('=== ACTIVE MODAL / DIALOG — handle this before interacting with the page behind it ===');
+    charCount += 90;
+    for (const d of dialogRoots) {
+      if (d.backendNodeId) hoistedDialogIds.add(d.backendNodeId);
+      serialize(d, 1);
+    }
+    lines.push('=== END MODAL / DIALOG ===');
+    charCount += 28;
+    inDialogPass = false;
   }
 
   serialize(root, 0);
