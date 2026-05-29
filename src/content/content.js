@@ -174,11 +174,39 @@ async function handleFormInput(payload, sendResponse) {
     // is a plain <input data-uxi-widget-type="selectinput"> inside a multiselect widget. It has
     // no role=combobox / aria-autocomplete, so without this it falls through to plain-text
     // handling — the value gets typed but the search is never committed and no option is clicked.
+    //
+    // Workday tenants are inconsistent: Skills on some tenants strips the widget-type/multiselect
+    // markers and only leaves `data-automation-id="searchBox"` on the input plus a sibling
+    // `<ul data-automation-id="selectedItemList">` (the pill box). Detect both flavors.
+    const wdInput = element.tagName === 'INPUT' ? element : null;
+    const wdAutomationId = wdInput ? (wdInput.getAttribute('data-automation-id') || '') : '';
+    // Walk up a few levels looking for a Workday widget wrapper or a sibling pill list.
+    let wdContainerMatch = false;
+    if (wdInput) {
+      let n = wdInput.parentElement;
+      for (let i = 0; i < 6 && n; i++, n = n.parentElement) {
+        const aid = (n.getAttribute && n.getAttribute('data-automation-id')) || '';
+        const wt = (n.getAttribute && n.getAttribute('data-uxi-widget-type')) || '';
+        if (wt === 'multiselect' || wt === 'selectinput' ||
+            aid === 'multiSelectContainer' || aid === 'formField-skills' ||
+            /multiselect|multiSelect|skills?$/i.test(aid)) {
+          wdContainerMatch = true;
+          break;
+        }
+        // Pill-list sibling is the most reliable Workday multiselect tell.
+        if (n.querySelector && n.querySelector(':scope > ul[data-automation-id="selectedItemList"], :scope > [data-automation-id="selectedItemList"]')) {
+          wdContainerMatch = true;
+          break;
+        }
+      }
+    }
     const isWorkdayMultiselect = !isCombobox && !comboboxAncestor && !hasComboboxInput &&
-      element.tagName === 'INPUT' &&
-      (element.getAttribute('data-uxi-widget-type') === 'selectinput' ||
-       (element.getAttribute('data-uxi-element-id') || '').startsWith('selectinput-') ||
-       element.closest('[data-uxi-widget-type="multiselect"], [data-automation-id="multiSelectContainer"]') != null);
+      wdInput != null &&
+      (wdInput.getAttribute('data-uxi-widget-type') === 'selectinput' ||
+       (wdInput.getAttribute('data-uxi-element-id') || '').startsWith('selectinput-') ||
+       wdAutomationId === 'searchBox' ||
+       /^promptOption|^selectinput/i.test(wdInput.getAttribute('data-uxi-element-id') || '') ||
+       wdContainerMatch);
 
     if (isCombobox || comboboxAncestor || hasComboboxInput || isDropdownTrigger || isWorkdayMultiselect) {
       let input = null;

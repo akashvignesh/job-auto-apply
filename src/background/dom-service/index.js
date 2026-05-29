@@ -22,6 +22,7 @@ import { buildAxLookup, buildEnhancedTree } from './tree-builder.js';
 import { serializeDomTree } from './serializer.js';
 import { injectElementDetector } from './js-injector.js';
 import { extractJsonLd, formatJsonLdSection } from './content-extractor.js';
+import { fieldLabelSequence } from './fingerprint.js';
 
 // Tags that are never semantically interactive on their own but often carry
 // React/Vue addEventListener bindings.  We only query these for event listeners.
@@ -222,6 +223,12 @@ export function processCdpData(rawCdp, options = {}) {
     jsonLdObjects,
   });
 
+  // Phase A (Webwright-inspired) — compute the canonical field-label sequence
+  // while the enhanced tree is still in scope. The async hash is done in the
+  // read-page-core caller; we just return the raw sequence here so we don't
+  // re-walk the tree later.
+  const fieldSeq = fieldLabelSequence(enhancedRoot);
+
   return {
     text,
     selectorMap,
@@ -234,6 +241,7 @@ export function processCdpData(rawCdp, options = {}) {
       interactiveElements: selectorMap.size,
       textLength: text.length,
       truncated,
+      fieldSeq,
     },
   };
 }

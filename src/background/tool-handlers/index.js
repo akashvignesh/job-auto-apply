@@ -34,6 +34,7 @@ import {
   handleGetInfo,
   handleEscalate,
 } from './agent-tool.js';
+import { handleRunScript, handleVerifyAction } from './script-tool.js';
 
 /**
  * Tool handler registry
@@ -60,6 +61,9 @@ export const toolHandlers = {
   resize_window: handleResizeWindow,
   get_info: handleGetInfo,
   escalate: handleEscalate,
+  // Phase B — Webwright-inspired tools.
+  run_script: handleRunScript,
+  verify_action: handleVerifyAction,
 };
 
 /**

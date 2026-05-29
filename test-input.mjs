@@ -189,5 +189,265 @@ await test('Enter key in type() is a real key event, not insertText', async () =
     'newline should NOT go through insertText');
 });
 
+// ============================================================================
+// Phase B — run_script (batched dispatcher) and verify_action (CDP poller)
+// ============================================================================
+console.log('\nPHASE B — run_script / verify_action');
+
+const { handleRunScript, handleVerifyAction } = await import('./src/background/tool-handlers/script-tool.js');
+
+function makeExecuteToolStub() {
+  const calls = [];
+  // Return a stub that records (toolName, input) and yields a configurable result.
+  // By default, returns { output: 'ok' } for every call.
+  const fn = async (toolName, input /* sessionTabGroupId, mcpSession, opts */) => {
+    calls.push({ toolName, input });
+    if (toolName === 'form_input' && input?.value === 'FAIL') {
+      return { error: 'simulated form_input failure' };
+    }
+    return { output: `did ${toolName}` };
+  };
+  return { fn, calls };
+}
+
+await test('run_script: rejects when actions is missing/empty', async () => {
+  const { fn } = makeExecuteToolStub();
+  const r1 = await handleRunScript({}, { executeTool: fn });
+  const r2 = await handleRunScript({ actions: [] }, { executeTool: fn });
+  assert.ok(String(r1.error || '').includes('actions'));
+  assert.ok(String(r2.error || '').includes('actions'));
+});
+
+await test('run_script: rejects oversize batches', async () => {
+  const { fn } = makeExecuteToolStub();
+  const actions = Array.from({ length: 13 }, () => ({ tool: 'form_input', input: { ref: 1, value: 'x' } }));
+  const r = await handleRunScript({ actions }, { executeTool: fn });
+  assert.ok(String(r.error || '').includes('too large'));
+});
+
+await test('run_script: dispatches actions in order and returns per-action results', async () => {
+  const { fn, calls } = makeExecuteToolStub();
+  const r = await handleRunScript({
+    actions: [
+      { tool: 'form_input', input: { ref: 100, value: 'a' } },
+      { tool: 'form_input', input: { ref: 101, value: 'b' } },
+      { tool: 'computer',   input: { action: 'left_click', ref: 200 } },
+    ],
+  }, { executeTool: fn });
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0].input.ref, 100);
+  assert.equal(calls[2].input.action, 'left_click');
+  assert.equal(r.structured.okCount, 3);
+  assert.equal(r.structured.failCount, 0);
+  assert.match(r.output, /3 OK, 0 FAIL/);
+});
+
+await test('run_script: blocks disallowed inner tools', async () => {
+  const { fn, calls } = makeExecuteToolStub();
+  const r = await handleRunScript({
+    actions: [
+      { tool: 'read_page',      input: {} },
+      { tool: 'javascript_tool', input: { action: 'javascript_exec', text: '1+1' } },
+      { tool: 'form_input',     input: { ref: 1, value: 'ok' } },
+    ],
+  }, { executeTool: fn });
+  // Only the form_input should have been dispatched. The other two get rejected
+  // with an "allowed" error message and never reach executeTool.
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].toolName, 'form_input');
+  assert.equal(r.structured.failCount, 2);
+  assert.equal(r.structured.okCount, 1);
+});
+
+await test('run_script: stopOnError halts the batch on the first failure', async () => {
+  const { fn, calls } = makeExecuteToolStub();
+  const r = await handleRunScript({
+    stopOnError: true,
+    actions: [
+      { tool: 'form_input', input: { ref: 1, value: 'ok' } },
+      { tool: 'form_input', input: { ref: 2, value: 'FAIL' } },
+      { tool: 'form_input', input: { ref: 3, value: 'never-reached' } },
+    ],
+  }, { executeTool: fn });
+  assert.equal(calls.length, 2); // third action never dispatched
+  assert.equal(r.structured.okCount, 1);
+  assert.equal(r.structured.failCount, 1);
+});
+
+await test('run_script: continues past failures by default', async () => {
+  const { fn, calls } = makeExecuteToolStub();
+  const r = await handleRunScript({
+    actions: [
+      { tool: 'form_input', input: { ref: 1, value: 'ok' } },
+      { tool: 'form_input', input: { ref: 2, value: 'FAIL' } },
+      { tool: 'form_input', input: { ref: 3, value: 'recover' } },
+    ],
+  }, { executeTool: fn });
+  assert.equal(calls.length, 3);
+  assert.equal(r.structured.okCount, 2);
+  assert.equal(r.structured.failCount, 1);
+});
+
+// verify_action — make sure the input validation works without needing the
+// full chrome.debugger stack. The actual polling logic touches CDP and is
+// covered end-to-end in browser; here we just confirm the input gates.
+await test('verify_action: rejects missing tabId / expect / bad expect value', async () => {
+  const r1 = await handleVerifyAction({ expect: 'navigated' });            // no tabId
+  const r2 = await handleVerifyAction({ tabId: 1 });                         // no expect
+  const r3 = await handleVerifyAction({ tabId: 1, expect: 'bogus-mode' });   // bad expect
+  assert.ok(String(r1.error || '').includes('tabId'));
+  assert.ok(String(r2.error || '').includes('expect'));
+  assert.ok(String(r3.error || '').includes('unknown expect'));
+});
+
+// ============================================================================
+// Phase C — proactive compaction / self-heal / snapshot-diff
+// ============================================================================
+console.log('\nPHASE C — proactive compaction / self-heal / snapshot-diff');
+
+const { shouldProactivelyCompact, PROACTIVE_THRESHOLD, MIN_TURNS_BETWEEN_COMPACTIONS } =
+  await import('./src/background/modules/conversation-compaction.js');
+
+await test('shouldProactivelyCompact: under token bar → never fires', () => {
+  assert.equal(shouldProactivelyCompact({ tokens: PROACTIVE_THRESHOLD - 1, turn: 100, lastCompactedAt: 0 }), false);
+  return Promise.resolve();
+});
+
+await test('shouldProactivelyCompact: above token bar + cadence met → fires', () => {
+  assert.equal(
+    shouldProactivelyCompact({ tokens: PROACTIVE_THRESHOLD + 5000, turn: MIN_TURNS_BETWEEN_COMPACTIONS, lastCompactedAt: 0 }),
+    true,
+  );
+  return Promise.resolve();
+});
+
+await test('shouldProactivelyCompact: above token bar but cadence too soon → skip', () => {
+  assert.equal(
+    shouldProactivelyCompact({ tokens: PROACTIVE_THRESHOLD + 5000, turn: MIN_TURNS_BETWEEN_COMPACTIONS - 1, lastCompactedAt: 0 }),
+    false,
+  );
+  // And once compacted, the next attempt should respect the interval.
+  assert.equal(
+    shouldProactivelyCompact({
+      tokens: PROACTIVE_THRESHOLD + 5000,
+      turn: MIN_TURNS_BETWEEN_COMPACTIONS + 3,
+      lastCompactedAt: MIN_TURNS_BETWEEN_COMPACTIONS + 1,
+    }),
+    false,
+  );
+  return Promise.resolve();
+});
+
+// C.1 — self-heal hooks: we test recordRefMeta + the recovery probe by stubbing
+// CDP. The real DOM.resolveNode is mocked to fail; Runtime.evaluate is mocked
+// to return a fake node objectId; DOM.describeNode is mocked to return a fresh
+// backendNodeId. We verify the resolver returns the healed id.
+// (createElementResolver is already imported above; reuse it.)
+const { recordRefMeta, clearRefMetaForTab, _peekRefMeta } =
+  await import('./src/background/dom-service/element-resolver.js');
+
+await test('recordRefMeta stores and clears per-tab', () => {
+  clearRefMetaForTab(1);
+  assert.equal(_peekRefMeta(1, 42), null);
+  recordRefMeta(1, 42, { role: 'button', label: 'Submit', tag: 'button' });
+  const m = _peekRefMeta(1, 42);
+  assert.equal(m.role, 'button');
+  assert.equal(m.label, 'Submit');
+  clearRefMetaForTab(1);
+  assert.equal(_peekRefMeta(1, 42), null);
+  return Promise.resolve();
+});
+
+await test('resolver self-heals from stale ref using ref-meta cache', async () => {
+  clearRefMetaForTab(7);
+  recordRefMeta(7, 9999, { role: 'button', label: 'Save and Continue', tag: 'button' });
+
+  // Stub CDP: DOM.resolveNode rejects (stale ref), Runtime.evaluate returns
+  // a node objectId, DOM.describeNode returns a fresh backendNodeId.
+  const calls = [];
+  const sendCommand = async (tabId, method, params) => {
+    calls.push({ method, params });
+    if (method === 'DOM.resolveNode') throw new Error('Could not find node');
+    if (method === 'Runtime.evaluate') {
+      return { result: { type: 'object', subtype: 'node', objectId: 'obj-healed-1' } };
+    }
+    if (method === 'DOM.describeNode') {
+      return { node: { nodeId: 555, backendNodeId: 12345 } };
+    }
+    return {};
+  };
+  const resolver = createElementResolver(sendCommand);
+  const full = await resolver.resolveNodeFull(7, 9999);
+  assert.equal(full.healed, true);
+  assert.equal(full.backendNodeId, 12345);
+  assert.equal(full.objectId, 'obj-healed-1');
+  // Resolved exactly once (the resolveNode attempt that threw), then evaluated.
+  assert.equal(calls.filter(c => c.method === 'DOM.resolveNode').length, 1);
+  assert.equal(calls.filter(c => c.method === 'Runtime.evaluate').length, 1);
+});
+
+await test('resolver throws when self-heal has no cache entry to use', async () => {
+  clearRefMetaForTab(8);
+  const sendCommand = async (_t, method) => {
+    if (method === 'DOM.resolveNode') throw new Error('stale');
+    return {};
+  };
+  const resolver = createElementResolver(sendCommand);
+  await assert.rejects(
+    () => resolver.resolveNodeFull(8, 4242),
+    /Could not resolve element 4242/,
+  );
+});
+
+// C.2 — snapshot-diff helpers
+const { buildRefSummaryFromMap, diffRefMaps } =
+  await import('./src/background/tool-handlers/read-page-core.js');
+
+await test('buildRefSummaryFromMap extracts role/label/tag from selectorMap', () => {
+  const sm = new Map();
+  sm.set(1, { nodeName: 'BUTTON', axNode: { role: 'button', name: 'Submit' }, attributes: {} });
+  sm.set(2, { nodeName: 'INPUT', axNode: { role: 'textbox' }, attributes: { 'aria-label': 'Email' } });
+  sm.set(3, { nodeName: 'DIV', axNode: {}, attributes: {} });
+  const out = buildRefSummaryFromMap(sm);
+  assert.equal(out.get('1').label, 'Submit');
+  assert.equal(out.get('1').role, 'button');
+  assert.equal(out.get('1').tag, 'button');
+  assert.equal(out.get('2').label, 'Email');
+  assert.equal(out.get('2').role, 'textbox');
+  return Promise.resolve();
+});
+
+await test('diffRefMaps detects added / removed / changed correctly', () => {
+  const prev = new Map([
+    ['10', { role: 'button', label: 'Apply', tag: 'button' }],
+    ['11', { role: 'textbox', label: 'Email', tag: 'input' }],
+    ['12', { role: 'button', label: 'Save', tag: 'button' }],
+  ]);
+  const cur = new Map([
+    ['10', { role: 'button', label: 'Apply Now', tag: 'button' }], // changed (label)
+    ['11', { role: 'textbox', label: 'Email', tag: 'input' }],     // unchanged
+    ['13', { role: 'dialog', label: 'Modal', tag: 'div' }],        // added (12 removed)
+  ]);
+  const diff = diffRefMaps(prev, cur);
+  assert.equal(diff.added.length, 1);
+  assert.equal(diff.added[0].ref, '13');
+  assert.equal(diff.removed.length, 1);
+  assert.equal(diff.removed[0].ref, '12');
+  assert.equal(diff.changed.length, 1);
+  assert.equal(diff.changed[0].ref, '10');
+  assert.equal(diff.changed[0].to.label, 'Apply Now');
+  return Promise.resolve();
+});
+
+await test('diffRefMaps with identical maps emits no changes', () => {
+  const m = new Map([['1', { role: 'button', label: 'OK', tag: 'button' }]]);
+  const other = new Map([['1', { role: 'button', label: 'OK', tag: 'button' }]]);
+  const diff = diffRefMaps(m, other);
+  assert.equal(diff.added.length, 0);
+  assert.equal(diff.removed.length, 0);
+  assert.equal(diff.changed.length, 0);
+  return Promise.resolve();
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

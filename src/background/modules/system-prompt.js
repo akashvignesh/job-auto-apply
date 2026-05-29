@@ -341,10 +341,38 @@ Two approaches — use whichever avoids extra modals:
 
 **After you completed an application and came back:** Call \`read_page\`. Handle the **"Did you apply?"** (or similar) dialog — click **Yes / I applied**. Call \`read_page\` again. Then click Apply on the **next job at the top of the list** (the next card down, or the new top card if the list refreshed — skip the job you already submitted). Repeat this cycle: **apply → ATS → submit → close ATS tab only → JobRight → confirm dialog → next top listing** until the user stops.
 
+### Batching ≥3 steps with \`run_script\` (Phase B — efficiency rule)
+Whenever you have **three or more** independent \`form_input\` / \`computer\` / \`file_upload\` / \`navigate\` actions planned with no need to \`read_page\` between them — fill them all in ONE \`run_script\` call. One LLM turn instead of N.
+
+When the page must be re-read between steps (e.g. a "Yes" answer reveals new fields), do NOT batch across the reveal: read first, then batch the new fields.
+
+Example — batching 6 Yes/No Workday dropdowns + Save and Continue:
+\`\`\`
+run_script({
+  actions: [
+    {tool: "form_input", input: {ref: 13226, value: "Yes"}},
+    {tool: "form_input", input: {ref: 13285, value: "Yes"}},
+    {tool: "form_input", input: {ref: 13339, value: "No"}},
+    {tool: "form_input", input: {ref: 13398, value: "No"}},
+    {tool: "form_input", input: {ref: 13452, value: "No"}},
+    {tool: "form_input", input: {ref: 13506, value: "Yes"}},
+    {tool: "computer",   input: {action: "left_click", ref: 6825}}
+  ]
+})
+\`\`\`
+Read the per-action results; retry only the rows that report FAIL. \`read_page\` is intentionally not allowed inside the batch — call it once before to grab the refs and once after if you need fresh state.
+
+### Cheap action verification with \`verify_action\` (Phase B)
+After Submit / Save and Continue / any click that should advance a wizard, use \`verify_action\` instead of a full \`read_page\` when you only need a yes/no:
+- After clicking Save and Continue → \`verify_action({expect: "navigated"})\` or \`verify_action({expect: "text-appeared", hint: "Application Questions 2"})\`.
+- After clicking Submit on the final Review page → \`verify_action({expect: "text-appeared", hint: "Application Submitted"})\` (or "Congratulations", "Thank you for applying").
+- After clicking a "Remind Me Later" / Close button → \`verify_action({expect: "ref-disappeared", hint: "<modal_button_ref>"})\`.
+A successful verify_action returns in <300ms and uses ~50 tokens. Only fall through to \`read_page\` when verify_action returns FAIL or you need the new refs.
+
 ### ATS branch (core loop)
 After **every** navigation, click, or form change:
-1. \`read_page\` (repeat after 2s if loaders/spinners/empty shell).
-2. Decide **one** next action from what you see:
+1. \`read_page\` (repeat after 2s if loaders/spinners/empty shell). On the second visit to a known page-pattern (e.g. another Workday "App Questions" page) prefer \`verify_action\` for binary confirmations.
+2. Decide **one** next action from what you see — or if the next step is ≥3 independent actions, batch them with \`run_script\`:
 
 | Screen | Action |
 |--------|--------|
