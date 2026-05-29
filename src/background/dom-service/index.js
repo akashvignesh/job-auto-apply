@@ -209,8 +209,12 @@ export function processCdpData(rawCdp, options = {}) {
     eventListenerSet,
   );
 
-  // Phase 4: Serialize
-  const { text, selectorMap, truncated } = serializeDomTree(enhancedRoot, options);
+  // Phase 4: Serialize. Pass viewport so the serializer can size-gate modal detection.
+  const { text, selectorMap, truncated } = serializeDomTree(enhancedRoot, {
+    ...options,
+    viewportWidth,
+    viewportHeight,
+  });
 
   return {
     text,

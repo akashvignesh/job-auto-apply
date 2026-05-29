@@ -113,20 +113,61 @@ const FORM_MANIPULATION_FN = `async (el, value) => {
         }
       }
 
-      const comboEl = inp || el;
-      const ownedId = comboEl.getAttribute('aria-owns') || comboEl.getAttribute('aria-controls');
+      // Find options anywhere on the page — including inside open shadow roots and across
+      // React portals that may render outside the combobox's aria-owns container. The previous
+      // implementation only scanned the aria-owns subtree, which silently failed on
+      // react-select (Greenhouse, Lever) and intl-tel-input where the popup is portaled.
+      const collectOptions = () => {
+        const found = new Set();
+        const walk = (root) => {
+          if (!root || !root.querySelectorAll) return;
+          for (const opt of root.querySelectorAll('[role="option"]:not([aria-disabled="true"])')) {
+            if (opt.offsetParent !== null || opt.offsetHeight > 0) found.add(opt);
+          }
+          const walker = root.createTreeWalker
+            ? root.createTreeWalker(root, NodeFilter.SHOW_ELEMENT)
+            : null;
+          if (!walker) return;
+          let node = walker.nextNode();
+          while (node) {
+            if (node.shadowRoot) walk(node.shadowRoot);
+            node = walker.nextNode();
+          }
+        };
+        walk(document);
+        return Array.from(found);
+      };
+
       let ddOptions = [];
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(r => setTimeout(r, 200));
-        const container = ownedId ? document.getElementById(ownedId) : null;
-        const scope = container || document;
-        ddOptions = Array.from(scope.querySelectorAll('[role="option"]:not([aria-disabled="true"])'));
-        ddOptions = ddOptions.filter(o => o.offsetParent !== null || o.offsetHeight > 0);
+      // Poll up to ~3s: short intervals up front catch synchronous renders, longer ones
+      // catch slow react-select/Greenhouse fetches.
+      const pollDelays = [120, 120, 160, 200, 250, 300, 400, 500, 500, 500];
+      for (const delay of pollDelays) {
+        await new Promise(r => setTimeout(r, delay));
+        ddOptions = collectOptions();
         if (ddOptions.length > 0) break;
       }
 
-      if (ddOptions.length === 0) {
-        return { error: 'No dropdown options appeared after typing "' + value + '". Try clicking the container first, then use form_input on the input inside it.' };
+      // Keyboard fallback: if no role="option" elements ever appeared, some widgets only
+      // commit selections via ArrowDown + Enter (no DOM listbox is rendered at all). Try it
+      // before giving up so the agent doesn't burn turns retrying the same typed value.
+      if (ddOptions.length === 0 && hasSearchInput && inp) {
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+        await new Promise(r => setTimeout(r, 150));
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+        inp.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
+        // If typing committed something into the underlying field, declare success.
+        const ownerInput = comboboxAncestor
+          ? comboboxAncestor.querySelector('input[type="hidden"], select')
+          : null;
+        const committedVal = (ownerInput && ownerInput.value)
+          || (inp.value && inp.value !== String(value) ? inp.value : '');
+        if (committedVal) {
+          return { output: 'Selected "' + committedVal + '" via keyboard (no listbox was rendered for "' + value + '")' };
+        }
+        return { error: 'No dropdown options appeared after typing "' + value + '" and keyboard fallback did not commit. Try clicking the container first, then use form_input on the input inside it.' };
       }
 
       const searchStr = String(value).trim().toLowerCase();
@@ -165,6 +206,17 @@ const FORM_MANIPULATION_FN = `async (el, value) => {
       }
 
       matched.scrollIntoView({ block: 'nearest' });
+      // React-select v5 (Greenhouse, Lever) commits selections on mousedown — synthetic
+      // .click() alone is a no-op because the lib calls preventDefault on click. Dispatch the
+      // full sequence so both library paths work.
+      const rect = matched.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const evtInit = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0 };
+      matched.dispatchEvent(new PointerEvent('pointerdown', { ...evtInit, pointerType: 'mouse' }));
+      matched.dispatchEvent(new MouseEvent('mousedown', evtInit));
+      matched.dispatchEvent(new PointerEvent('pointerup', { ...evtInit, pointerType: 'mouse' }));
+      matched.dispatchEvent(new MouseEvent('mouseup', evtInit));
       matched.click();
       await new Promise(r => setTimeout(r, 300));
       return { output: 'Selected "' + (matched.textContent || '').trim() + '" from dropdown (searched: "' + value + '")' };

@@ -17,7 +17,6 @@ import {
 import { getMemoryStats } from './modules/memory-manager.js';
 import { compactIfNeeded, calculateContextTokens } from './modules/conversation-compaction.js';
 import { startOAuthLogin, importCLICredentials, logout, getAuthStatus } from './modules/oauth-manager.js';
-import { importCodexCredentials, logoutCodex, getCodexAuthStatus } from './modules/codex-oauth-manager.js';
 import { hasHandler, executeToolHandler } from './tool-handlers/index.js';
 import { log, clearLog, saveTaskLogs, initLogging, registerTaskLogging, unregisterTaskLogging } from './managers/logging-manager.js';
 import { startSession, resetTaskUsage, recordApiCall, recordTaskCompletion, getTaskUsage } from './managers/usage-tracker.js';
@@ -1204,10 +1203,13 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         return { success: false, message: result.message, messages, steps };
       }
 
-      // Cache successful form fills to prevent re-fills
+      // Cache successful form fills to prevent re-fills. Match any positive output prefix —
+      // earlier substring check missed 'Set tel to' (phone), 'Set number to', 'Set date to',
+      // 'Checkbox checked', 'Radio button selected', and other non-text fields, which is why
+      // phone fields got re-typed after the agent scrolled back to the top.
       if (toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value && !isError) {
         const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
-        if (resultStr.includes('Set text to') || resultStr.includes('Selected')) {
+        if (/(Set [a-z]+ to|Selected|Checkbox (checked|unchecked)|Radio button)/.test(resultStr)) {
           filledFieldsCache.set(String(toolUse.input.ref), toolUse.input.value);
         }
       }
@@ -1488,9 +1490,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (providerKeys) {
           normalizedPayload.providerKeys = providerKeys;
         }
-        if (providerKeys?.google && (payload.provider === 'google' || payload.apiBaseUrl?.includes('generativelanguage.googleapis.com'))) {
-          normalizedPayload.apiKey = providerKeys.google;
-        }
         return chrome.storage.local.set(normalizedPayload).then(() => normalizedPayload);
       }).then(normalizedPayload => {
         setConfig(normalizedPayload);
@@ -1651,77 +1650,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       return false;
 
-    case 'IMPORT_CODEX_CREDENTIALS':
-      importCodexCredentials()
-        .then(async credentials => {
-          await loadConfig();
-          sendResponse({ success: true, credentials });
-        })
-        .catch(error => {
-          sendResponse({ success: false, error: error.message });
-        });
-      return true;
-
-    case 'CODEX_LOGOUT':
-      logoutCodex().then(async () => {
-        await loadConfig();
-        sendResponse({ success: true });
-      });
-      return true;
-
-    case 'GET_CODEX_STATUS':
-      getCodexAuthStatus().then(status => sendResponse(status));
-      return true;
   }
-});
-
-async function getDefaultGoogleApiKey() {
-  try {
-    const secrets = await import('./modules/local-secrets.js');
-    return secrets.DEFAULT_GOOGLE_API_KEY || '';
-  } catch {
-    return '';
-  }
-}
-
-async function syncDefaultGoogleConfig() {
-  const defaultGoogleApiKey = await getDefaultGoogleApiKey();
-  const stored = await chrome.storage.local.get(['providerKeys', 'apiBaseUrl', 'model', 'provider']);
-  if (!defaultGoogleApiKey) return;
-
-  const model = stored.model || 'gemini-2.5-flash';
-  const isGoogleChatModel = model.startsWith('gemma-4-')
-    || (model.startsWith('gemini-')
-      && !['image', 'tts', 'audio', 'live', 'embedding', 'robotics', 'computer-use'].some(fragment => model.includes(fragment)));
-  const shouldUseOpenAICompat = isGoogleChatModel
-    && (stored.provider === 'google' || (stored.apiBaseUrl || '').includes('generativelanguage.googleapis.com'));
-  const openAICompatUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-
-  const updates = {
-    apiKey: defaultGoogleApiKey,
-    providerKeys: { ...(stored.providerKeys || {}), google: defaultGoogleApiKey },
-  };
-  if (!stored.model) {
-    updates.model = model;
-  }
-  if (shouldUseOpenAICompat) {
-    updates.provider = 'openai';
-    updates.apiBaseUrl = openAICompatUrl;
-  } else if (!stored.apiBaseUrl) {
-    updates.apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
-    updates.provider = 'google';
-  }
-
-  await chrome.storage.local.set(updates);
-}
-
-syncDefaultGoogleConfig().catch(error => {
-  console.warn('[Config] Failed to sync default Google config:', error);
 });
 
 // Open status page on first install
 chrome.runtime.onInstalled.addListener(async (details) => {
-  await syncDefaultGoogleConfig();
 
   if (details.reason === 'install') {
     // Check if credentials already exist (e.g. user ran CLI setup first)

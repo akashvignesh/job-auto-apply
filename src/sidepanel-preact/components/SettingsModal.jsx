@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'preact/hooks';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import { PROVIDERS } from '../config/providers';
 
 export function SettingsModal({ config, onClose }) {
   const [activeTab, setActiveTab] = useState('providers');
-  const [selectedProvider, setSelectedProvider] = useState(null);
   const [localKeys, setLocalKeys] = useState({ ...config.providerKeys });
   const [newCustomModel, setNewCustomModel] = useState({ name: '', baseUrl: '', modelId: '', apiKey: '' });
   const [skillForm, setSkillForm] = useState({ domain: '', skill: '', isOpen: false, editIndex: -1 });
@@ -137,15 +135,11 @@ export function SettingsModal({ config, onClose }) {
             <ConnectionsTab
               localKeys={localKeys}
               setLocalKeys={setLocalKeys}
-              selectedProvider={selectedProvider}
-              setSelectedProvider={setSelectedProvider}
               config={config}
               newCustomModel={newCustomModel}
               setNewCustomModel={setNewCustomModel}
               onAddCustomModel={handleAddCustomModel}
               formError={formError}
-              fetchGoogleModels={config.fetchGoogleModels}
-              googleFetchedModels={config.googleFetchedModels}
             />
           )}
 
@@ -175,52 +169,18 @@ export function SettingsModal({ config, onClose }) {
 function ConnectionsTab({
   localKeys,
   setLocalKeys,
-  selectedProvider,
-  setSelectedProvider,
   config,
   newCustomModel,
   setNewCustomModel,
   onAddCustomModel,
   formError,
-  fetchGoogleModels,
-  googleFetchedModels,
 }) {
-  const [fetchStatus, setFetchStatus] = useState(null);
-  const [fetching, setFetching] = useState(false);
-
-  const handleFetchGoogleModels = async () => {
-    const key = localKeys.google;
-    if (!key) return;
-    setFetching(true);
-    setFetchStatus(null);
-    const result = await fetchGoogleModels(key);
-    setFetching(false);
-    setFetchStatus(result);
-  };
   return (
     <div class="tab-content">
-      {/* Managed service */}
+      {/* Claude OAuth (Pro/Max via `claude login`) */}
       <div class="provider-section">
-        <h4>Hanzi Managed</h4>
-        <p class="provider-desc">We handle the AI. 20 free tasks/month, then $0.05/task. No API key needed.</p>
-        <a class="btn btn-primary" href="https://api.hanzilla.co/pair-self" target="_blank" rel="noreferrer"
-          style={{ textDecoration: 'none' }}>
-          Sign in &amp; connect
-        </a>
-      </div>
-
-      <hr />
-
-      {/* BYOM section */}
-      <div class="provider-section">
-        <h4>Bring your own model</h4>
-        <p class="provider-desc">Use your existing AI subscription. Free forever.</p>
-      </div>
-
-      {/* Import Claude credentials */}
-      <div class="provider-section">
-        <h4>Claude</h4>
-        <p class="provider-desc">Use your Claude Pro/Max subscription via <code>claude login</code></p>
+        <h4>Claude (Pro/Max plan)</h4>
+        <p class="provider-desc">Use your Claude subscription via <code>claude login</code> — no API charges.</p>
         {config.oauthStatus.isAuthenticated ? (
           <div class="connected-status">
             <span class="status-badge connected">Connected</span>
@@ -231,88 +191,52 @@ function ConnectionsTab({
         )}
       </div>
 
-      {/* Import Codex credentials */}
+      <hr />
+
+      {/* Anthropic API key */}
       <div class="provider-section">
-        <h4>Codex</h4>
-        <p class="provider-desc">Use your ChatGPT Pro/Plus subscription via <code>codex login</code></p>
-        {config.codexStatus.isAuthenticated ? (
-          <div class="connected-status">
-            <span class="status-badge connected">Connected</span>
-            <button class="btn btn-secondary btn-sm" onClick={config.logoutCodex}>Disconnect</button>
-          </div>
-        ) : (
-          <button class="btn btn-primary" onClick={config.importCodex}>Import from codex login</button>
-        )}
+        <h4>Anthropic API key</h4>
+        <p class="provider-desc">Pay-per-token via your own Anthropic API key.</p>
+        <div class="api-key-input">
+          <label>API Key</label>
+          <input
+            type="password"
+            value={localKeys.anthropic || ''}
+            onInput={(e) => setLocalKeys({ ...localKeys, anthropic: e.target.value })}
+            placeholder="sk-ant-..."
+          />
+        </div>
       </div>
 
       <hr />
 
-      {/* API Keys */}
-      <h4>API Keys</h4>
-      <div class="provider-cards">
-        {Object.entries(PROVIDERS).map(([id, provider]) => (
-          <div
-            key={id}
-            class={`provider-card ${selectedProvider === id ? 'selected' : ''} ${localKeys[id] ? 'configured' : ''}`}
-            onClick={() => setSelectedProvider(selectedProvider === id ? null : id)}
-          >
-            <div class="provider-name">{provider.name}</div>
-            {localKeys[id] && <span class="check-badge">✓</span>}
-          </div>
-        ))}
+      {/* Amazon Bedrock */}
+      <div class="provider-section">
+        <h4>Amazon Bedrock (Claude via AWS)</h4>
+        <p class="provider-desc">
+          Use Claude via your AWS account. Default region <code>us-east-1</code> with cross-region
+          inference profile (US). Generate a Bedrock API key in the AWS console
+          (<em>Bedrock → API keys → Create</em>) and request access to the Claude models you want
+          to use.
+        </p>
+        <div class="api-key-input">
+          <label>Bedrock API Key</label>
+          <input
+            type="password"
+            value={localKeys.bedrock || ''}
+            onInput={(e) => setLocalKeys({ ...localKeys, bedrock: e.target.value })}
+            placeholder="bedrock-api-key-..."
+          />
+        </div>
+        <p class="provider-desc" style={{ fontSize: '0.8em', marginTop: '8px', opacity: 0.7 }}>
+          Note: streaming is not supported on Bedrock in this build — responses arrive as a
+          single chunk. To use a different region, add it as a custom endpoint below.
+        </p>
       </div>
 
-      {selectedProvider && (
-        <div class="api-key-input">
-          <label>{PROVIDERS[selectedProvider].name} {selectedProvider === 'vertex' ? 'Service Account JSON' : 'API Key'}</label>
-          {selectedProvider === 'vertex' ? (
-            <textarea
-              value={localKeys[selectedProvider] || ''}
-              onInput={(e) => setLocalKeys({ ...localKeys, [selectedProvider]: e.target.value })}
-              placeholder="Paste the entire service account JSON file contents here..."
-              rows={4}
-              style={{ fontFamily: 'monospace', fontSize: '0.8em' }}
-            />
-          ) : (
-            <input
-              type="password"
-              value={localKeys[selectedProvider] || ''}
-              onInput={(e) => setLocalKeys({ ...localKeys, [selectedProvider]: e.target.value })}
-              placeholder="Enter API key..."
-            />
-          )}
-          {selectedProvider === 'google' && (
-            <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <button
-                class="btn btn-secondary btn-sm"
-                onClick={handleFetchGoogleModels}
-                disabled={fetching || !localKeys.google}
-              >
-                {fetching ? 'Fetching…' : 'Fetch available models'}
-              </button>
-              {fetchStatus?.success && (
-                <span style={{ fontSize: '0.8em', color: 'var(--color-success, #2e7d32)' }}>
-                  ✓ {fetchStatus.count} models loaded
-                </span>
-              )}
-              {fetchStatus?.error && (
-                <span style={{ fontSize: '0.8em', color: 'var(--color-error, #c62828)' }}>
-                  {fetchStatus.error}
-                </span>
-              )}
-              {!fetchStatus && googleFetchedModels?.length > 0 && (
-                <span style={{ fontSize: '0.8em', opacity: 0.6 }}>
-                  {googleFetchedModels.length} models cached
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Custom endpoints — collapsed */}
+      {/* Custom endpoints — for advanced users running a local ccproxy */}
       <details class="advanced-section" style={{ marginTop: '16px' }}>
-        <summary>Custom endpoint (Ollama, LM Studio, etc.)</summary>
+        <summary>Custom Anthropic-compatible endpoint</summary>
         <div class="custom-model-form" style={{ marginTop: '12px' }}>
           <input type="text" placeholder="Display Name" value={newCustomModel.name}
             onInput={(e) => setNewCustomModel({ ...newCustomModel, name: e.target.value })} />

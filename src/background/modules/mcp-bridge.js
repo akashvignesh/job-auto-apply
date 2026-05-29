@@ -132,7 +132,6 @@ const WS_RECONNECT_DELAY_MS = 5000;
 // Direct imports for credential handling (chrome.runtime.sendMessage cannot
 // message the service worker from within itself — "Receiving end does not exist")
 import { importCLICredentials } from './oauth-manager.js';
-import { importCodexCredentials } from './codex-oauth-manager.js';
 import { loadConfig } from './api.js';
 
 // WebSocket reconnect timer (socket itself lives in relay-client.js)
@@ -567,19 +566,14 @@ async function handleMcpCommand(command) {
     }
 
     case 'import_credentials': {
-      // CLI setup wizard requests credential import (Claude Code or Codex).
-      // Calls the import functions directly — chrome.runtime.sendMessage()
-      // cannot message the service worker from within itself.
-      const source = command.source; // 'claude' or 'codex'
+      // CLI setup wizard requests credential import (Claude Code only in this build).
+      const source = command.source;
       console.log('[MCP Bridge] import_credentials:', source);
       try {
-        const importFn = source === 'claude' ? importCLICredentials
-                       : source === 'codex'  ? importCodexCredentials
-                       : null;
-        if (!importFn) {
+        if (source !== 'claude') {
           throw new Error(`Unknown credential source: ${source}`);
         }
-        const credentials = await importFn();
+        const credentials = await importCLICredentials();
         await loadConfig();
         if (command.requestId) {
           sendToMcpRelay({ type: 'credentials_imported', requestId: command.requestId, success: true, credentials });

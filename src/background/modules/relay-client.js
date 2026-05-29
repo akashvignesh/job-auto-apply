@@ -4,8 +4,8 @@
  * Shared WebSocket relay primitives extracted from mcp-bridge.js
  * to break circular dependencies.
  *
- * api.js, oauth-manager.js, and codex-oauth-manager.js import from here
- * instead of mcp-bridge.js, eliminating all 3 circular dependency cycles.
+ * api.js and oauth-manager.js import from here instead of mcp-bridge.js,
+ * eliminating the circular dependency cycles.
  */
 
 // ─── Socket Reference ──────────────────────────────────────────

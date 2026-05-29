@@ -46,70 +46,6 @@ function calcApiCostUsd(usage) {
 // Native host port for OAuth proxy (reused across API calls)
 let nativeHostPort = null;
 
-const GOOGLE_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const TEMP_GOOGLE_API_KEY = 'AIzaSyAMRTkhFTtJ-oa9KtEUp4O_OrA4mAB0ckQ';
-
-function isGoogleOpenAICompatibleChatModel(model = '') {
-  if (model.startsWith('gemma-4-')) return true;
-  if (!model.startsWith('gemini-')) return false;
-
-  return ![
-    'image',
-    'tts',
-    'audio',
-    'live',
-    'embedding',
-    'robotics',
-    'computer-use',
-  ].some(fragment => model.includes(fragment));
-}
-
-async function getLocalDefaultGoogleApiKey() {
-  try {
-    const secrets = await import('./local-secrets.js');
-    return secrets.DEFAULT_GOOGLE_API_KEY || '';
-  } catch {
-    return '';
-  }
-}
-
-async function normalizeGoogleApiKey(callConfig, persist = false) {
-  const isGoogleOpenAICompatModel = isGoogleOpenAICompatibleChatModel(callConfig.model || '')
-    && (callConfig.apiBaseUrl || '').includes('generativelanguage.googleapis.com');
-  const routeThroughOpenAICompat = isGoogleOpenAICompatModel
-    && callConfig.apiBaseUrl !== GOOGLE_OPENAI_COMPAT_BASE_URL;
-  const isGoogleConfig = callConfig.provider === 'google'
-    || (callConfig.apiBaseUrl || '').includes('generativelanguage.googleapis.com')
-    || (callConfig.apiBaseUrl || '').includes('aiplatform.googleapis.com');
-
-  if (!isGoogleConfig) return callConfig;
-
-  const localDefaultGoogleApiKey = TEMP_GOOGLE_API_KEY || await getLocalDefaultGoogleApiKey();
-  const googleApiKey = localDefaultGoogleApiKey || callConfig.providerKeys?.google || '';
-  if (!googleApiKey || (!routeThroughOpenAICompat && callConfig.apiKey === googleApiKey)) return callConfig;
-
-  const normalized = {
-    ...callConfig,
-    ...(routeThroughOpenAICompat
-      ? { provider: 'openai', apiBaseUrl: GOOGLE_OPENAI_COMPAT_BASE_URL }
-      : {}),
-    apiKey: googleApiKey,
-    providerKeys: { ...(callConfig.providerKeys || {}), google: googleApiKey },
-  };
-
-  if (persist) {
-    await chrome.storage.local.set({
-      ...(routeThroughOpenAICompat
-        ? { provider: 'openai', apiBaseUrl: GOOGLE_OPENAI_COMPAT_BASE_URL }
-        : {}),
-      apiKey: googleApiKey,
-      providerKeys: normalized.providerKeys,
-    });
-  }
-
-  return normalized;
-}
-
 /**
  * Load configuration from storage
  */
@@ -120,7 +56,6 @@ export async function loadConfig() {
     'provider', 'agentDefaultConfig'
   ]);
   config = { ...config, ...stored };
-  config = await normalizeGoogleApiKey(config, true);
 
   // Include built-in skills for UI display
   config.builtInSkills = DOMAIN_SKILLS.map(s => ({ domain: s.domain, skill: s.skill }));
@@ -148,20 +83,8 @@ function getProviderName(callConfig) {
 }
 
 function resolveConfigWithTier(baseConfig, modelTier) {
-  const providerName = getProviderName(baseConfig);
-
-  if (!modelTier) {
-    return baseConfig;
-  }
-
-  if (providerName === 'anthropic' && MODEL_TIER_MAP[modelTier]) {
-    return { ...baseConfig, model: MODEL_TIER_MAP[modelTier] };
-  }
-
-  if (providerName === 'codex' && CODEX_MODEL_TIER_MAP[modelTier]) {
-    return { ...baseConfig, model: CODEX_MODEL_TIER_MAP[modelTier] };
-  }
-
+  if (!modelTier) return baseConfig;
+  if (MODEL_TIER_MAP[modelTier]) return { ...baseConfig, model: MODEL_TIER_MAP[modelTier] };
   return baseConfig;
 }
 
@@ -169,62 +92,13 @@ export function resolveAgentDefaultConfig(baseConfig = config) {
   if (baseConfig?.agentDefaultConfig?.model && baseConfig?.agentDefaultConfig?.apiBaseUrl) {
     return { ...baseConfig.agentDefaultConfig };
   }
-
-  const providerName = getProviderName(baseConfig);
-  const authMethod = baseConfig.authMethod;
-
-  if (providerName === 'anthropic') {
-    return {
-      provider: 'anthropic',
-      model: MODEL_TIER_MAP.fast,
-      apiBaseUrl: baseConfig.apiBaseUrl,
-      apiKey: baseConfig.apiKey,
-      authMethod,
-      name: 'haiku 4.5',
-    };
-  }
-
-  if (providerName === 'codex') {
-    return {
-      provider: 'codex',
-      model: CODEX_MODEL_TIER_MAP.fast,
-      apiBaseUrl: baseConfig.apiBaseUrl,
-      apiKey: baseConfig.apiKey,
-      authMethod,
-      name: 'gpt-5.1 codex',
-    };
-  }
-
-  if (providerName === 'google') {
-    return {
-      provider: 'google',
-      model: 'gemini-2.5-flash',
-      apiBaseUrl: baseConfig.apiBaseUrl,
-      apiKey: baseConfig.apiKey,
-      authMethod,
-      name: 'gemini 2.5 flash',
-    };
-  }
-
-  if (providerName === 'openrouter') {
-    return {
-      provider: 'openrouter',
-      model: 'qwen/qwen3-vl-235b-a22b-thinking',
-      apiBaseUrl: baseConfig.apiBaseUrl,
-      apiKey: baseConfig.apiKey,
-      authMethod,
-      name: 'qwen3 vl 235b',
-    };
-  }
-
-  // Fallback: honour whatever the user has configured
   return {
-    provider: baseConfig.provider || 'anthropic',
-    model: baseConfig.model,
+    provider: 'anthropic',
+    model: MODEL_TIER_MAP.fast,
     apiBaseUrl: baseConfig.apiBaseUrl,
     apiKey: baseConfig.apiKey,
-    authMethod,
-    name: baseConfig.model,
+    authMethod: baseConfig.authMethod,
+    name: 'haiku 4.5',
   };
 }
 
@@ -326,15 +200,6 @@ const MODEL_TIER_MAP = {
   powerful: 'claude-opus-4-5-20251101',   // Best quality - good for complex reasoning
 };
 
-/**
- * Codex model tier mapping - for OpenAI Codex (ChatGPT Pro/Plus)
- */
-const CODEX_MODEL_TIER_MAP = {
-  fast: 'gpt-5.1-codex',                  // gpt-5.1-mini not supported via Codex with ChatGPT account
-  smart: 'gpt-5.1-codex',                 // Balanced - good for planning
-  powerful: 'gpt-5.1-codex-max',          // Best quality - complex reasoning
-};
-
 function buildEffectiveConfig(overrides = {}) {
   return { ...config, ...overrides };
 }
@@ -375,26 +240,16 @@ export async function callLLMSimple(promptOrOptions) {
     messages = [{ role: 'user', content: promptOrOptions }];
   }
 
-  let effectiveConfig = await normalizeGoogleApiKey(buildEffectiveConfig(configOverride || {}));
+  let effectiveConfig = buildEffectiveConfig(configOverride || {});
   effectiveConfig = resolveConfigWithTier(effectiveConfig, modelTier);
   const provider = createProvider(effectiveConfig.apiBaseUrl || '', effectiveConfig);
-  const providerName = provider.getName();
-  const useAnthropicOAuth = providerName === 'anthropic' && effectiveConfig.authMethod === 'oauth';
-  const useCodexOAuth = providerName === 'codex' && effectiveConfig.authMethod === 'codex_oauth';
+  const useAnthropicOAuth = effectiveConfig.authMethod === 'oauth';
 
   if (modelTier) {
     console.log(`[API] callLLMSimple: Using model tier "${modelTier}" → ${effectiveConfig.model}`);
   }
 
   const systemPrompt = system || 'You are a helpful assistant. Be concise and direct in your responses.';
-
-  if (useCodexOAuth) {
-    const result = await provider.call(messages, systemPrompt, [], null, () => {});
-    if (returnFullResponse) {
-      return result;
-    }
-    return result.content?.find(b => b.type === 'text')?.text || '';
-  }
 
   if (useAnthropicOAuth) {
     const requestBody = provider.buildRequestBody(messages, systemPrompt, [], true);
@@ -936,216 +791,6 @@ export async function callLLMSimpleViaProxyNoTools(messages, maxTokens = 2000) {
 }
 
 /**
- * Simple LLM call through proxy using Codex (ChatGPT Pro/Plus)
- * Uses Responses API format. Routes through native host which uses ~/.codex/auth.json.
- *
- * @param {Array} messages - Conversation messages (Anthropic format, will be converted)
- * @param {number} maxTokens - Maximum tokens in response
- * @param {string} modelTier - Model tier: 'fast', 'smart', or 'powerful'
- * @param {string} instructions - System instructions (optional, defaults to general assistant)
- * @returns {Promise<Object>} API response in Anthropic-compatible format
- */
-export async function callLLMSimpleViaCodex(messages, _maxTokens = 2000, modelTier = 'smart', instructions = null) {
-  const PROXY_TIMEOUT_MS = 90000; // 90 seconds for Codex (can be slower)
-
-  // Map model tier to Codex model
-  const model = CODEX_MODEL_TIER_MAP[modelTier] || CODEX_MODEL_TIER_MAP.smart;
-
-  // Convert messages to Codex Responses API "input" format
-  const input = convertMessagesToCodexInput(messages);
-
-  // Default instructions if not provided (required by Codex API)
-  const systemInstructions = instructions || 'You are a helpful assistant. Be concise and direct in your responses.';
-
-  // Build Codex Responses API request body
-  const requestBody = {
-    model: model,
-    input: input,
-    instructions: systemInstructions,  // Required by Codex API
-    store: false,    // Required by Codex API
-    stream: true,    // Codex backend requires stream=true even for "non-streaming" use
-  };
-
-  const apiUrl = 'https://chatgpt.com/backend-api/codex/responses';
-  const requestBodyStr = JSON.stringify(requestBody);
-
-  console.log('[API] callLLMSimpleViaCodex: Sending request', { model, modelTier, inputItems: input.length });
-
-  const apiPromise = new Promise((resolve, reject) => {
-    const port = getNativeHostPort();
-    let settled = false;
-    let accumulatedText = '';
-    let usage = null;
-
-    // eslint-disable-next-line sonarjs/cognitive-complexity
-    const messageListener = (message) => {
-      if (settled) return;
-
-      if (message.type === 'stream_chunk') {
-        // Handle Responses API streaming events
-        const event = message.data;
-
-        if (event.type === 'response.output_text.delta') {
-          // Text streaming
-          accumulatedText += event.delta || '';
-        } else if (event.type === 'response.completed') {
-          // Final response with usage
-          const response = event.response;
-          if (response?.usage) {
-            usage = response.usage;
-          }
-          // Extract text from completed response if we missed streaming
-          if (!accumulatedText && response?.output) {
-            for (const item of response.output) {
-              if (item.type !== 'message' || !item.content) continue;
-              for (const part of item.content) {
-                if (part.type === 'output_text') {
-                  accumulatedText += part.text || '';
-                }
-              }
-            }
-          }
-        }
-      } else if (message.type === 'stream_end') {
-        settled = true;
-        port.onMessage.removeListener(messageListener);
-
-        // Build Anthropic-compatible response format
-        const result = {
-          content: [{ type: 'text', text: accumulatedText }],
-          stop_reason: 'end_turn',
-          usage: usage
-        };
-
-        console.log('[API] callLLMSimpleViaCodex: Got response', {
-          textLength: accumulatedText.length,
-          usage: usage
-        });
-
-        resolve(result);
-      } else if (message.type === 'api_response') {
-        settled = true;
-        port.onMessage.removeListener(messageListener);
-
-        if (message.status >= 400) {
-          reject(new Error(`Codex API error: ${message.status} - ${message.body?.substring(0, 200)}`));
-          return;
-        }
-
-        try {
-          const response = JSON.parse(message.body);
-          // Normalize Codex response to Anthropic format
-          const result = normalizeCodexResponse(response);
-          resolve(result);
-        } catch (err) {
-          reject(new Error(`Failed to parse Codex response: ${err.message}`));
-        }
-      } else if (message.type === 'api_error') {
-        settled = true;
-        port.onMessage.removeListener(messageListener);
-        reject(new Error(message.error || 'Codex API call failed'));
-      }
-    };
-
-    port.onMessage.addListener(messageListener);
-
-    // Send request to native host
-    port.postMessage({
-      type: 'proxy_api_call',
-      data: {
-        url: apiUrl,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBodyStr
-      }
-    });
-  });
-
-  // Wrap with timeout
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`Codex request timed out after ${PROXY_TIMEOUT_MS / 1000} seconds`));
-    }, PROXY_TIMEOUT_MS);
-  });
-
-  return Promise.race([apiPromise, timeoutPromise]);
-}
-
-/**
- * Convert Anthropic-style messages to Codex Responses API input format
- * @private
- */
-function convertMessagesToCodexInput(messages) {
-  const input = [];
-
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      // User message
-      const text = typeof msg.content === 'string'
-        ? msg.content
-        : msg.content.map(b => b.text || '').join('\n');
-
-      input.push({
-        type: 'message',
-        role: 'user',
-        content: [{ type: 'input_text', text }]
-      });
-    } else if (msg.role === 'assistant') {
-      // Assistant message
-      const text = typeof msg.content === 'string'
-        ? msg.content
-        : msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
-
-      if (text.trim()) {
-        input.push({
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text }]
-        });
-      }
-    }
-  }
-
-  return input;
-}
-
-/**
- * Normalize Codex Responses API response to Anthropic format
- * @private
- */
-function normalizeCodexResponse(response) {
-  const content = [];
-  let stopReason = 'end_turn';
-
-  if (response.output) {
-    for (const item of response.output) {
-      if (item.type === 'message' && item.role === 'assistant') {
-        for (const part of item.content || []) {
-          if (part.type === 'output_text' && part.text) {
-            content.push({ type: 'text', text: part.text });
-          }
-        }
-      }
-    }
-
-    if (response.status === 'incomplete') {
-      stopReason = 'max_tokens';
-    }
-  }
-
-  // Ensure content is never empty
-  if (content.length === 0) {
-    content.push({ type: 'text', text: '' });
-  }
-
-  return {
-    content,
-    stop_reason: stopReason,
-    usage: response.usage
-  };
-}
-
-/**
  * Main LLM API call with tools and streaming support
  * @param {Array} messages - Conversation messages
  * @param {Function|null} onTextChunk - Callback for streaming text chunks
@@ -1156,10 +801,10 @@ function normalizeCodexResponse(response) {
 export async function callLLM(messages, onTextChunk = null, log = () => {}, currentUrl = null, externalSignal = null, options = {}) {
   await loadConfig();
 
-  const effectiveConfig = await normalizeGoogleApiKey(buildEffectiveConfig({
+  const effectiveConfig = buildEffectiveConfig({
     ...(options.configOverride || {}),
     ...(options.modelOverride ? { model: options.modelOverride } : {}),
-  }));
+  });
 
   // When disableTools is set (e.g. conversation compaction), the model must return a plain
   // text summary — not call tools. Passing the tool schema makes the model invoke tools
@@ -1167,41 +812,26 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
   // the relay/proxy/direct paths all see it.
   effectiveConfig.disableTools = options.disableTools === true;
 
-  // Debug: log config values
   console.log('[API] Config loaded:', {
     apiBaseUrl: effectiveConfig.apiBaseUrl,
     model: effectiveConfig.model,
     hasApiKey: !!effectiveConfig.apiKey,
-    providerKeyPrefix: effectiveConfig.providerKeys?.google ? effectiveConfig.providerKeys.google.substring(0, 10) + '...' : 'none',
     apiKeyPrefix: effectiveConfig.apiKey ? effectiveConfig.apiKey.substring(0, 10) + '...' : 'none',
   });
   await log('API_CONFIG', 'Resolved LLM config', {
     apiBaseUrl: effectiveConfig.apiBaseUrl,
     model: effectiveConfig.model,
-    provider: effectiveConfig.provider,
     hasApiKey: !!effectiveConfig.apiKey,
-    providerKeyPrefix: effectiveConfig.providerKeys?.google ? effectiveConfig.providerKeys.google.substring(0, 10) + '...' : 'none',
     apiKeyPrefix: effectiveConfig.apiKey ? effectiveConfig.apiKey.substring(0, 10) + '...' : 'none',
   });
 
-  // Create provider instance
   const provider = createProvider(effectiveConfig.apiBaseUrl || '', effectiveConfig);
   const useStreaming = onTextChunk !== null;
   const signal = externalSignal || abortController?.signal;
-  const isClaudeModel = provider.getName() === 'anthropic';
-  const systemPrompt = buildSystemPrompt({ isClaudeModel });
 
-  // Filter tools based on current URL (hides domain-specific tools on non-matching sites)
-  // Always use getToolsForUrl to ensure _domains property is stripped (API rejects unknown properties)
-  const tools = effectiveConfig.disableTools ? [] : getToolsForUrl(currentUrl);
-
-  // Get URL for early routing checks (OAuth proxy, Codex fallback)
-  // Full request body is built later after potential config changes
-  const apiUrl = provider.buildUrl(useStreaming);
-
-  // OAuth calls require Claude Code impersonation headers (user-agent, x-app: cli)
-  // that browsers can't set due to CORS. Route through relay proxy (or native host fallback).
-  if (apiUrl.includes('api.anthropic.com') && effectiveConfig.authMethod === 'oauth') {
+  // OAuth calls require Claude Code impersonation headers (user-agent, x-app: cli) that browsers
+  // can't set due to CORS. Route through relay proxy first, fall back to native host on failure.
+  if (effectiveConfig.authMethod === 'oauth') {
     try {
       return await callLLMThroughRelayProxy(messages, onTextChunk, log, currentUrl, effectiveConfig);
     } catch (relayErr) {
@@ -1210,38 +840,14 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
     }
   }
 
-  // If calling Codex API (ChatGPT backend), use the provider's native messaging call
-  // CodexProvider has its own call() method that handles native messaging with OpenAI SSE format
-  // Falls back to ccproxy if Codex subscription is expired (429)
-  if (apiUrl.includes('chatgpt.com') && effectiveConfig.authMethod === 'codex_oauth') {
-    try {
-      return await provider.call(messages, systemPrompt, tools, onTextChunk, log);
-    } catch (e) {
-      if (e.message.includes('429') || e.message.includes('usage_limit')) {
-        console.log('[API] Codex limit reached, falling back to ccproxy');
-        // Switch to ccproxy for the rest of this session (in-memory only)
-        effectiveConfig.apiBaseUrl = 'http://127.0.0.1:8000/claude/v1/messages';
-        effectiveConfig.authMethod = '';
-        effectiveConfig.model = MODEL_TIER_MAP.fast;
-        // Fall through to direct fetch below with ccproxy URL
-      } else {
-        throw e;
-      }
-    }
-  }
-
-  // Rebuild provider/request if config was changed by Codex fallback
-  const activeProvider = createProvider(effectiveConfig.apiBaseUrl || '', effectiveConfig);
-  const activeIsClaudeModel = activeProvider.getName() === 'anthropic';
-  const activeSystemPrompt = buildSystemPrompt({ isClaudeModel: activeIsClaudeModel });
+  // Direct path: Anthropic API key auth via fetch.
+  const activeProvider = provider;
+  const activeSystemPrompt = buildSystemPrompt({ isClaudeModel: true });
   const activeTools = effectiveConfig.disableTools ? [] : getToolsForUrl(currentUrl);
   const activeRequestBody = activeProvider.buildRequestBody(messages, activeSystemPrompt, activeTools, useStreaming);
   const activeApiUrl = activeProvider.buildUrl(useStreaming);
 
-  // Timeout for API calls — 5 minutes for local models (vLLM first request can be slow),
-  // 2 minutes for cloud APIs
-  const isLocalModel = activeApiUrl.includes('localhost') || activeApiUrl.includes('127.0.0.1') || activeApiUrl.includes('192.168.');
-  const timeoutMs = isLocalModel ? 300000 : 120000;
+  const timeoutMs = 120000;
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
