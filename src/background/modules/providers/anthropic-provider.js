@@ -39,14 +39,21 @@ export class AnthropicProvider extends BaseProvider {
   }
 
   buildRequestBody(messages, systemPrompt, tools, useStreaming) {
+    // Normalize: the main agent loop passes an array of content blocks, but callLLMSimple
+    // (find tool, summarization, etc.) passes a plain string. Without this, string.map()
+    // throws "systemPrompt.map is not a function" and silently kills those calls.
+    const systemBlocks = typeof systemPrompt === 'string'
+      ? (systemPrompt ? [{ type: 'text', text: systemPrompt }] : [])
+      : (systemPrompt || []);
+
     // Cache the static system prompt — identical on every call in a session
-    const cachedSystem = systemPrompt && systemPrompt.length > 0
-      ? systemPrompt.map((b, i) =>
-          i === systemPrompt.length - 1
+    const cachedSystem = systemBlocks.length > 0
+      ? systemBlocks.map((b, i) =>
+          i === systemBlocks.length - 1
             ? { ...b, cache_control: { type: 'ephemeral' } }
             : b
         )
-      : systemPrompt;
+      : systemBlocks;
 
     // Cache the static tool definitions — also identical for the entire session
     const cachedTools = tools && tools.length > 0

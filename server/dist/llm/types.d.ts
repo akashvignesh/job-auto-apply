@@ -1,16 +1,8 @@
 /**
- * LLM Client — Claude Code CLI mode
+ * Canonical LLM types — Anthropic-shaped content blocks.
  *
- * Uses the official @anthropic-ai/sdk instead of raw fetch.
- * Credentials are resolved from:
- *   1. ANTHROPIC_API_KEY env var  → direct API key
- *   2. ~/.claude/.credentials.json → Claude Code OAuth (reuses `claude login` session)
- *   3. macOS Keychain               → Claude Code OAuth
- *
- * Vertex AI (Gemini) is kept as an optional override: set VERTEX_SERVICE_ACCOUNT_JSON
- * env var to re-enable it. DeepSeek V4 is available as an override too: set
- * DEEPSEEK_API_KEY (and optionally DEEPSEEK_MODEL, default `deepseek-v4-pro`).
- * Otherwise the project runs entirely on Claude.
+ * All Claude transports (Anthropic API, OAuth, Bedrock) use this format
+ * natively, so no conversion is needed at the boundary.
  */
 export interface ContentBlockText {
     type: "text";
@@ -56,8 +48,6 @@ export interface LLMResponse {
         output_tokens: number;
     };
     model?: string;
-    /** Kept for Vertex AI compatibility — unused in Claude mode */
-    _rawGeminiParts?: any[];
 }
 export interface CallLLMParams {
     messages: Message[];
@@ -68,14 +58,3 @@ export interface CallLLMParams {
     signal?: AbortSignal;
     onText?: (chunk: string) => void;
 }
-/**
- * Call the LLM using the Anthropic SDK.
- *
- * Routes to Vertex AI (Gemini) if VERTEX_SERVICE_ACCOUNT_JSON is set, then to
- * DeepSeek if DEEPSEEK_API_KEY is set. Otherwise uses Claude via SDK + Claude Code credentials.
- */
-export declare function callLLM(params: CallLLMParams): Promise<LLMResponse>;
-/**
- * Reset the cached credential source (e.g. after a manual credential update).
- */
-export declare function resetCredentialCache(): void;

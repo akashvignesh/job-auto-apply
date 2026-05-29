@@ -9,6 +9,9 @@
  */
 
 import { getDomainSkills } from './modules/domain-skills.js';
+import { recordStep, resetRecording, getRecording, getChunks, stepFromToolCall } from './modules/plan-recorder.js';
+import { upsertPlanForPage, getPlanByFingerprint, getMostRecentPlanForDomain, renderPlanForPrompt } from './modules/learned-plans.js';
+import { getLastFingerprintForTab, clearLastFingerprintForTab } from './tool-handlers/read-page-core.js';
 import {
   loadConfig, getConfig, setConfig,
   createAbortController, abortRequest,
@@ -17,7 +20,6 @@ import {
 import { getMemoryStats } from './modules/memory-manager.js';
 import { compactIfNeeded, calculateContextTokens } from './modules/conversation-compaction.js';
 import { startOAuthLogin, importCLICredentials, logout, getAuthStatus } from './modules/oauth-manager.js';
-import { importCodexCredentials, logoutCodex, getCodexAuthStatus } from './modules/codex-oauth-manager.js';
 import { hasHandler, executeToolHandler } from './tool-handlers/index.js';
 import { log, clearLog, saveTaskLogs, initLogging, registerTaskLogging, unregisterTaskLogging } from './managers/logging-manager.js';
 import { startSession, resetTaskUsage, recordApiCall, recordTaskCompletion, getTaskUsage } from './managers/usage-tracker.js';
@@ -496,7 +498,7 @@ async function executeTool(toolName, toolInput, sessionTabGroupId = null, mcpSes
   // tabs_close is excluded — it always requires an explicit tabId
   const tabTools = ['computer', 'read_page', 'find', 'form_input', 'get_page_text',
                     'javascript_tool', 'file_upload', 'read_console_messages', 'read_network_requests',
-                    'resize_window', 'solve_captcha', 'navigate'];
+                    'resize_window', 'solve_captcha', 'navigate', 'verify_action'];
   if (!toolInput.tabId && tabTools.includes(toolName)) {
     // navigate can work on restricted tabs (chrome://, about:) since it changes the URL
     const allowRestricted = toolName === 'navigate';
@@ -575,6 +577,11 @@ async function executeTool(toolName, toolInput, sessionTabGroupId = null, mcpSes
       queryMemory, // For get_info tool to query Mem0 via MCP server
       sendEscalation, // For escalate tool to send escalation via MCP bridge
       sessionId, // For escalate tool to identify the session
+      // Phase B — run_script needs to recursively dispatch the inner batched
+      // actions. Pass executeTool itself plus the surrounding session context
+      // it requires so each inner call hits the same validation path.
+      executeTool,
+      sessionTabGroupId,
     };
     return await executeToolHandler(toolName, toolInput, deps);
   }
@@ -630,6 +637,79 @@ async function buildTabContext(initialTabId, mcpSession, taskLog) {
         if (taskLog) {
           await taskLog('SKILLS', `Loaded ${skills.length} domain skill(s) for ${currentTabUrl}`, { domains: skills.map(s => s.domain) });
         }
+      }
+
+      // Phase A — load any learned plan for the LIVE page. Lookup ladder:
+      //
+      //   (1) Exact-fingerprint match on the current page (primary). If
+      //       a read_page has already fired this turn and we got a
+      //       fingerprint stashed, prefer that plan. This is what makes
+      //       cross-tenant replay free: Medtronic's My-Experience plan
+      //       has fingerprint a3f1; Boeing's My-Experience page also
+      //       fingerprints to a3f1; same row, same plan.
+      //
+      //   (2) Domain-soft fallback ONLY when the live URL path looks
+      //       application-shaped. This catches task starts where no
+      //       read_page has run yet — we offer the user's most recent
+      //       plan for this host, with the relevance gate filtering out
+      //       listings / dashboards / search pages.
+      //
+      // Per-task cache: every lookup is cached by (initialTabId, key) so
+      // the lookup hits IDB at most once per cache key for the duration
+      // of the task. Cleared at task start via resetLearnedPlanCache.
+      try {
+        const u = new URL(currentTabUrl);
+        const host = u.hostname.toLowerCase();
+        const fpEntry = getLastFingerprintForTab(initialTabId);
+        const liveFp = fpEntry && fpEntry.fingerprint ? fpEntry.fingerprint : '';
+
+        let plan = null;
+        let lookupSource = '';
+        let cacheHit = false;
+
+        // (1) Exact-fingerprint primary path.
+        if (liveFp) {
+          const fpKey = `fp::${liveFp}`;
+          const cachedFp = getCachedLearnedPlan(initialTabId, fpKey);
+          if (cachedFp !== undefined) {
+            plan = cachedFp;
+            cacheHit = true;
+          } else {
+            plan = await getPlanByFingerprint(liveFp);
+            _learnedPlanCacheByTask.set(_cacheKey(initialTabId, fpKey), plan || null);
+          }
+          if (plan) lookupSource = 'fingerprint';
+        }
+
+        // (2) Domain-soft fallback path — only when no exact match AND the
+        //     URL path looks application-shaped (no point injecting on the
+        //     candidate dashboard).
+        if (!plan && isPlanRelevantForPath(u.pathname || '')) {
+          const cachedHost = getCachedLearnedPlan(initialTabId, host);
+          if (cachedHost !== undefined) {
+            plan = cachedHost;
+            cacheHit = cacheHit && true;
+          } else {
+            plan = await loadAndCacheLearnedPlan(initialTabId, host);
+          }
+          if (plan) lookupSource = 'domain-soft';
+        }
+
+        if (plan) {
+          tabInfo.learnedPlan = {
+            originDomains: plan.originDomains || (plan.domain ? [plan.domain] : []),
+            fingerprint: plan.formFingerprint,
+            taskKind: plan.taskKind || '',
+            successCount: plan.successCount || 1,
+            source: lookupSource,
+            rendered: renderPlanForPrompt(plan),
+          };
+          if (taskLog && !cacheHit) {
+            await taskLog('LEARNED_PLAN', `Loaded plan (${lookupSource}) for ${host} (${(plan.plan || []).length} steps, successes=${plan.successCount})`);
+          }
+        }
+      } catch {
+        // No plan found, or storage unavailable. Non-fatal.
       }
     }
   } catch {
@@ -732,6 +812,78 @@ function extractFirstUserTaskText(messages) {
     .filter(b => b.type === 'text' && b.text && !String(b.text).startsWith('<system-reminder>'))
     .map(b => b.text)
     .join('\n');
+}
+
+/**
+ * Phase A — scan the most recent N tool_result content for explicit success
+ * markers that indicate the underlying task actually completed (Workday's
+ * "Application Submitted" modal, Greenhouse's "Thank you for applying", etc.).
+ * Mirrors the marker list curated in conversation-compaction.js so we keep
+ * one source of truth instead of two.
+ *
+ * @param {Array} messages - the conversation messages array
+ * @param {number} lastN - how many tail messages to scan (default 6)
+ * @returns {boolean}
+ */
+const SUCCESS_MARKER_RE = /(application[\s_-]*submitted|congratulations|thank you for applying|your application has been (submitted|received)|application complete|successfully submitted|submission received|you have no more tasks)/i;
+function conversationHasSuccessMarker(messages, lastN = 6) {
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const tail = messages.slice(Math.max(0, messages.length - Math.max(1, lastN)));
+  for (const msg of tail) {
+    if (!msg || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (!block) continue;
+      // tool_result blocks carry the page-visible text the agent just read.
+      // Both string content and structured array-of-text content shapes occur.
+      const txt = typeof block.text === 'string' ? block.text
+        : typeof block.content === 'string' ? block.content
+        : (Array.isArray(block.content) ? block.content.map(c => c?.text || '').join(' ') : '');
+      if (txt && SUCCESS_MARKER_RE.test(txt)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Phase A cache: keyed by `${initialTabId}::${hostname}`. Value is the loaded
+ * plan, or `null` if a lookup happened and found nothing (so we don't re-query).
+ * Cleared at task start via resetLearnedPlanCache(tabId).
+ */
+const _learnedPlanCacheByTask = new Map();
+
+function _cacheKey(tabId, host) { return `${tabId}::${host}`; }
+
+function getCachedLearnedPlan(tabId, host) {
+  return _learnedPlanCacheByTask.has(_cacheKey(tabId, host))
+    ? _learnedPlanCacheByTask.get(_cacheKey(tabId, host))
+    : undefined;
+}
+
+async function loadAndCacheLearnedPlan(tabId, host) {
+  const plan = await getMostRecentPlanForDomain(host);
+  _learnedPlanCacheByTask.set(_cacheKey(tabId, host), plan || null);
+  return plan || null;
+}
+
+function resetLearnedPlanCache(tabId) {
+  for (const k of Array.from(_learnedPlanCacheByTask.keys())) {
+    if (k.startsWith(`${tabId}::`)) _learnedPlanCacheByTask.delete(k);
+  }
+}
+
+/**
+ * Decide whether the live URL's path is "application-shaped" enough that
+ * showing a prior learned plan is more help than noise. Liberal on the
+ * positives (any apply/wizard/onboarding/form keyword) and explicit on the
+ * negatives (listings/dashboards) so a single ambiguous path falls through
+ * to "no injection" rather than spamming the prompt.
+ */
+function isPlanRelevantForPath(pathname) {
+  if (!pathname) return false;
+  if (/(jobs\/recommend|\/recommend|\/search|\/home|\/dashboard|\/feed|\/explore|\/userhome|\/candidatehome)/i.test(pathname)) {
+    return false;
+  }
+  return /(apply|application|onboarding|signup|sign-up|register|wizard|checkout|form|step\d+|interview)/i.test(pathname);
 }
 
 /** Job / ATS / JobRight flows need aggressive continuation — cloud models often end_turn after one navigate/click. */
@@ -856,6 +1008,19 @@ async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBefore
   // Load config first to ensure userSkills and other settings are available
   await loadConfig();
 
+  // Phase A — fresh recording for this task. Follow-ups keep adding to the
+  // existing recording; new tasks start clean so the persisted plan reflects
+  // a single coherent flow. The per-task plan-lookup cache is also cleared
+  // here so the first buildTabContext call queries IDB exactly once and all
+  // subsequent per-turn calls hit the cache.
+  if (!isFollowUp) {
+    try {
+      resetRecording(initialTabId);
+      clearLastFingerprintForTab(initialTabId);
+      resetLearnedPlanCache(initialTabId);
+    } catch { /* never fatal */ }
+  }
+
   // Create or adopt tab group for this session (receives tabGroupId from client)
   // Skip tab grouping for MCP sessions with dedicated windows — chrome.tabs.group()
   // pulls tabs out of their window and into the main window's tab strip
@@ -899,6 +1064,33 @@ async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBefore
     text: `<system-reminder>${JSON.stringify(tabInfo)}</system-reminder>`,
   });
 
+  // Phase A — inject the learned plan as a separate, prominent block AFTER
+  // the tab context. Kept out of the JSON blob so the LLM treats it as
+  // first-class guidance rather than tab metadata. The "guidance, not script"
+  // framing in the body is load-bearing: it tells the model to fall back to
+  // exploration when a step's label doesn't match the live DOM. The plan
+  // is PAGE-SCOPED (one row per form fingerprint), so the block is small —
+  // just the steps for this exact page.
+  if (tabInfo.learnedPlan && tabInfo.learnedPlan.rendered) {
+    const lp = tabInfo.learnedPlan;
+    const matchType = lp.source === 'fingerprint'
+      ? 'an EXACT form-structure match'
+      : 'a SOFT domain match (the form on this page may differ — be ready to fall back)';
+    userContent.push({
+      type: 'text',
+      text: `<learned-plan>
+A previous successful run produced ${matchType} for this page (${lp.successCount} success(es), kind=${lp.taskKind || 'generic'}). Treat this as a trajectory HINT, not a script:
+- These are the steps that previously worked on this SPECIFIC page. Batch them in ONE tool turn instead of one-tool-per-call.
+- If a step's label/role does not appear on the live page, SKIP that step and fall back to normal read_page + form_input — do NOT invent refs.
+- A step may show "(+N variants)" — multiple selector hints were recorded across tenants; the agent layer picks the live one for you.
+- Values marked <profile.*> come from the user profile; <today.date> from today's date; literal values are shown as-is.
+- When this page is done and you navigate to the next wizard step, a NEW learned-plan block will appear for that page — do not try to follow these steps once the page advances.
+
+${lp.rendered}
+</learned-plan>`,
+    });
+  }
+
   // Add MCP task context if provided (for filling forms, making decisions)
   // This context contains information the agent needs to complete the task
   if (mcpSession?.context) {
@@ -923,10 +1115,12 @@ ${mcpSession.context}</system-reminder>`,
   let messages = [...existingHistory, { role: 'user', content: userContent }];
   let steps = 0;
   const filledFieldsCache = new Map(); // Track ref→value for successful form fills to prevent re-fills
+  const uploadedFilesCache = new Set(); // Track filePath of successful uploads — prevents re-uploading the same resume after a compaction (a Workday run uploaded resume.pdf 3x)
   const loopWarnedKeys = new Set(); // Loop-detection: keys we've already warned the agent about
   let sameUrlStreak = 0;            // Consecutive turns on the same URL (no navigation)
   let lastStreakUrl = null;         // URL the streak is counting
   let sameUrlWarnedAt = 0;          // Streak length at which we last warned (avoid spamming)
+  let lastCompactedAt = 0;          // Phase C — agent-loop turn at which the last successful compaction fired
   // maxSteps: 0 means unlimited, otherwise use configured value or default to 100
   const configMaxSteps = getConfig().maxSteps;
   const maxSteps = configMaxSteps === 0 ? Infinity : (configMaxSteps || 100);
@@ -1032,13 +1226,25 @@ ${mcpSession.context}</system-reminder>`,
         await taskLog('MEMORY', `Rolling window: condensed to ${messages.length} messages`);
       }
     } else {
-      // Cloud models: prune stale screenshots then compact if needed
+      // Cloud models: prune stale screenshots then compact if needed.
+      // Phase C — pass the loop's turn counter and the turn at which we last
+      // compacted so the conversation-compaction module can fire proactively
+      // every N turns (default 8) once tokens exceed PROACTIVE_THRESHOLD,
+      // rather than waiting for the 30K hard ceiling.
       messages = pruneOldScreenshots(messages, 2);
       const compactionLLM = mcpSession
         ? (msgs, onChunk, log, url, signal, opts) =>
             callLLM(msgs, onChunk, log, url, signal, { ...opts, configOverride: mcpSession.modelConfig })
         : callLLM;
-      messages = await compactIfNeeded(messages, compactionLLM, taskLog);
+      const lengthBefore = messages.length;
+      messages = await compactIfNeeded(messages, compactionLLM, taskLog, {
+        turn: steps,
+        lastCompactedAt,
+      });
+      // Detect "did compaction actually happen?" by an unmistakable shrink.
+      if (messages.length < lengthBefore) {
+        lastCompactedAt = steps;
+      }
     }
 
     let response;
@@ -1159,6 +1365,22 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         }
       }
 
+      // Dedup: skip file_upload if this exact file was already uploaded to this input. After a
+      // compaction the agent forgets it uploaded the resume and re-uploads it (one Workday run
+      // attached resume.pdf 3 times). The ref is stable while the page isn't reloaded, so keying on
+      // ref+filePath blocks the re-upload while still allowing a genuinely different slot/file.
+      if (toolUse.name === 'file_upload' && toolUse.input?.ref) {
+        const rawPath = toolUse.input.filePath || toolUse.input.file_path || '';
+        const uploadKey = String(toolUse.input.ref) + '::' + rawPath;
+        if (rawPath && uploadedFilesCache.has(uploadKey)) {
+          await taskLog('TOOL', `Skipping duplicate file_upload: "${rawPath}" already uploaded to ref=${toolUse.input.ref}`);
+          const skipResult = { toolResult: { type: 'tool_result', tool_use_id: toolUse.id, content: `Already uploaded: "${rawPath}" is attached to ref=${toolUse.input.ref}. Do NOT upload it again. Move to the next field or click Submit/Next.` }, updatePayload: { step: steps, status: 'executed', tool: 'file_upload', input: toolUse.input, result: 'skipped (already uploaded)' } };
+          toolResults.push(skipResult.toolResult);
+          onUpdate(skipResult.updatePayload);
+          continue;
+        }
+      }
+
       const toolStartTime = Date.now();
       const result = await executeTool(toolUse.name, toolUse.input, sessionTabGroupId, mcpSession, {
         askBeforeActing,
@@ -1204,11 +1426,47 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         return { success: false, message: result.message, messages, steps };
       }
 
-      // Cache successful form fills to prevent re-fills
+      // Cache successful form fills to prevent re-fills. Match any positive output prefix —
+      // earlier substring check missed 'Set tel to' (phone), 'Set number to', 'Set date to',
+      // 'Checkbox checked', 'Radio button selected', and other non-text fields, which is why
+      // phone fields got re-typed after the agent scrolled back to the top.
       if (toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value && !isError) {
         const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
-        if (resultStr.includes('Set text to') || resultStr.includes('Selected')) {
+        if (/(Set [a-z]+ to|Selected|Checkbox (checked|unchecked)|Radio button)/.test(resultStr)) {
           filledFieldsCache.set(String(toolUse.input.ref), toolUse.input.value);
+        }
+      }
+
+      // Cache successful uploads so a post-compaction re-upload of the same file is skipped.
+      if (toolUse.name === 'file_upload' && toolUse.input?.ref && !isError) {
+        const rawPath = toolUse.input.filePath || toolUse.input.file_path || '';
+        const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
+        if (rawPath && /Successfully uploaded/i.test(resultStr)) {
+          uploadedFilesCache.add(String(toolUse.input.ref) + '::' + rawPath);
+        }
+      }
+
+      // Phase A — append a symbolic step to the per-tab plan recording. We record
+      // only confirmed-successful tool calls (errors and dedup-skips already
+      // `continue`d above before reaching this point). Steps are symbolic
+      // (valueKind, not raw refs) so a plan recorded on tenant A replays on B.
+      //
+      // The recorder is now CHUNKED — passing the live URL + fingerprint lets
+      // it split the recording at page boundaries, so a Workday application
+      // becomes 6 per-page rows instead of one 60-step trajectory.
+      if (!isError) {
+        try {
+          const profile = (getConfig().profile) || getConfig().userProfile || null;
+          const step = stepFromToolCall(toolUse, profile, /* refMeta */ null);
+          if (step) {
+            const fpEntry = getLastFingerprintForTab(initialTabId);
+            recordStep(initialTabId, step, {
+              url: currentTabUrl || (fpEntry && fpEntry.url) || '',
+              fingerprint: fpEntry && fpEntry.fingerprint ? fpEntry.fingerprint : '',
+            });
+          }
+        } catch {
+          // Recording is best-effort — never let it break a live task.
         }
       }
 
@@ -1370,6 +1628,43 @@ async function startTask(tabId, task, shouldAskBeforeActing = true, images = [],
       turns: result.steps || 0,
     });
 
+    // Phase A — persist the learned plan when the recording terminated on a
+    // genuine success marker (Workday's "Application Submitted" / etc.). We
+    // ignore result.success — the agent loop auto-nudges past end_turn on
+    // job pages so success is never true in production.
+    //
+    // Per-page persistence: the recording is chunked into one entry per
+    // distinct (url-path, fingerprint) pair, so a Workday application
+    // produces ~6 small rows (one per wizard step) instead of one big
+    // trajectory. Each chunk upserts via upsertPlanForPage, which MERGES
+    // with any existing row for the same fingerprint additively — a new
+    // tenant whose form matches just gets added to originDomains[] and
+    // contributes any novel selector variants to per-step variants[].
+    try {
+      if (conversationHasSuccessMarker(result.messages, 8)) {
+        const chunks = getChunks(tabId);
+        const modelVersion = getConfig().model || '';
+        let saved = 0;
+        for (const c of chunks) {
+          if (c.steps.length < 1) continue;
+          await upsertPlanForPage({
+            domain: c.domain,
+            fingerprint: c.fingerprint,
+            steps: c.steps,
+            startUrl: c.startUrl,
+            modelVersion,
+            taskKind: 'application',
+          });
+          saved++;
+        }
+        if (saved > 0) {
+          await log('LEARNED_PLAN', `Saved ${saved} page-plan(s) from ${chunks.length} chunk(s)`);
+        }
+      }
+    } catch (e) {
+      await log('LEARNED_PLAN', `Save failed: ${e && e.message}`);
+    }
+
     // Get task usage before recording completion
     const taskUsage = getTaskUsage();
 
@@ -1487,9 +1782,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const normalizedPayload = { ...payload };
         if (providerKeys) {
           normalizedPayload.providerKeys = providerKeys;
-        }
-        if (providerKeys?.google && (payload.provider === 'google' || payload.apiBaseUrl?.includes('generativelanguage.googleapis.com'))) {
-          normalizedPayload.apiKey = providerKeys.google;
         }
         return chrome.storage.local.set(normalizedPayload).then(() => normalizedPayload);
       }).then(normalizedPayload => {
@@ -1651,77 +1943,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       return false;
 
-    case 'IMPORT_CODEX_CREDENTIALS':
-      importCodexCredentials()
-        .then(async credentials => {
-          await loadConfig();
-          sendResponse({ success: true, credentials });
-        })
-        .catch(error => {
-          sendResponse({ success: false, error: error.message });
-        });
-      return true;
-
-    case 'CODEX_LOGOUT':
-      logoutCodex().then(async () => {
-        await loadConfig();
-        sendResponse({ success: true });
-      });
-      return true;
-
-    case 'GET_CODEX_STATUS':
-      getCodexAuthStatus().then(status => sendResponse(status));
-      return true;
   }
-});
-
-async function getDefaultGoogleApiKey() {
-  try {
-    const secrets = await import('./modules/local-secrets.js');
-    return secrets.DEFAULT_GOOGLE_API_KEY || '';
-  } catch {
-    return '';
-  }
-}
-
-async function syncDefaultGoogleConfig() {
-  const defaultGoogleApiKey = await getDefaultGoogleApiKey();
-  const stored = await chrome.storage.local.get(['providerKeys', 'apiBaseUrl', 'model', 'provider']);
-  if (!defaultGoogleApiKey) return;
-
-  const model = stored.model || 'gemini-2.5-flash';
-  const isGoogleChatModel = model.startsWith('gemma-4-')
-    || (model.startsWith('gemini-')
-      && !['image', 'tts', 'audio', 'live', 'embedding', 'robotics', 'computer-use'].some(fragment => model.includes(fragment)));
-  const shouldUseOpenAICompat = isGoogleChatModel
-    && (stored.provider === 'google' || (stored.apiBaseUrl || '').includes('generativelanguage.googleapis.com'));
-  const openAICompatUrl = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-
-  const updates = {
-    apiKey: defaultGoogleApiKey,
-    providerKeys: { ...(stored.providerKeys || {}), google: defaultGoogleApiKey },
-  };
-  if (!stored.model) {
-    updates.model = model;
-  }
-  if (shouldUseOpenAICompat) {
-    updates.provider = 'openai';
-    updates.apiBaseUrl = openAICompatUrl;
-  } else if (!stored.apiBaseUrl) {
-    updates.apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
-    updates.provider = 'google';
-  }
-
-  await chrome.storage.local.set(updates);
-}
-
-syncDefaultGoogleConfig().catch(error => {
-  console.warn('[Config] Failed to sync default Google config:', error);
 });
 
 // Open status page on first install
 chrome.runtime.onInstalled.addListener(async (details) => {
-  await syncDefaultGoogleConfig();
 
   if (details.reason === 'install') {
     // Check if credentials already exist (e.g. user ran CLI setup first)

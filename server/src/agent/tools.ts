@@ -154,4 +154,44 @@ export const AGENT_TOOLS: Tool[] = [
       required: ["action", "text"],
     },
   },
+  // Phase B — Webwright-inspired tools (mirrored in src/tools/definitions.js).
+  {
+    name: "run_script",
+    description: `Execute MULTIPLE action steps in ONE tool call. Prefer this whenever you have ≥3 form_input or click steps planned with no read_page between them. Each action is {tool, input} where tool ∈ {form_input, computer, file_upload, navigate}. Results are reported per-action.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        actions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              tool: { type: "string" },
+              input: { type: "object" },
+            },
+            required: ["tool", "input"],
+          },
+        },
+        stopOnError: { type: "boolean" },
+      },
+      required: ["actions"],
+    },
+  },
+  {
+    name: "verify_action",
+    description: `Cheap CDP-based check that an action actually changed the page (URL changed, text appeared, ref disappeared, modal appeared). Use after Submit / Save and Continue / navigations instead of a full read_page when you only need yes/no.`,
+    input_schema: {
+      type: "object",
+      properties: {
+        expect: {
+          type: "string",
+          enum: ["navigated", "text-appeared", "ref-disappeared", "modal-present"],
+        },
+        hint: { type: "string" },
+        timeoutMs: { type: "number" },
+        tabId: { type: "number" },
+      },
+      required: ["expect"],
+    },
+  },
 ];

@@ -24,6 +24,8 @@ import type {
 } from "../llm/client.js";
 import { AGENT_TOOLS } from "./tools.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+// Phase 4c: JSON repair for malformed LLM output
+import { jsonrepair } from "jsonrepair";
 
 // --- Types ---
 
@@ -158,6 +160,11 @@ export async function runAgentLoop(
   let totalUsage = { inputTokens: 0, outputTokens: 0, apiCalls: 0 };
   let lastModel: string | undefined;
 
+  // Phase 5: Loop detection state tracking
+  const urlHistory: string[] = [];
+  const actionLog: string[] = [];
+  let budgetWarningInjected = false;
+
   // Build initial user message
   let userMessage = task;
   if (url) {
@@ -181,6 +188,16 @@ export async function runAgentLoop(
     }
 
     onStep?.({ step, status: "thinking" });
+
+    // Phase 5: Budget awareness injection at 75%
+    const budgetPct = step / maxSteps;
+    if (!budgetWarningInjected && budgetPct >= 0.75) {
+      budgetWarningInjected = true;
+      messages.push({
+        role: 'user',
+        content: `<system_note>You have used ${step} of ${maxSteps} steps (${Math.round(budgetPct * 100)}% of budget). Focus on the highest-priority remaining items only. Skip non-essential exploration.</system_note>`
+      });
+    }
 
     // Call LLM — prune stale screenshots and window history to cap context size
     const messagesForCall = windowMessages(pruneOldScreenshots(messages, 2));
@@ -332,6 +349,16 @@ export async function runAgentLoop(
         };
       }
 
+      // Phase 5: Loop detection — track URL and actions for stuck detection
+      // (This is inserted here before tool results are added, to record what happened)
+      // Extract URL from navigation tool or maintain from previous
+      let currentUrl = urlHistory[urlHistory.length - 1] || targetUrl || '';
+      if (toolUse.name === 'navigate' && toolUse.input.url) {
+        currentUrl = toolUse.input.url;
+      }
+      urlHistory.push(currentUrl);
+      actionLog.push(`${toolUse.name}:${JSON.stringify(toolUse.input).slice(0, 40)}`);
+
       // Build tool result content block
       const resultContent: Array<ContentBlockText | { type: "image"; source: any }> = [];
 
@@ -341,7 +368,27 @@ export async function runAgentLoop(
         : typeof result.output === "string"
         ? result.output
         : JSON.stringify(result.output);
-      resultContent.push({ type: "text", text: textOutput });
+
+      // Phase 5: Inject loop detection warnings into tool results
+      let finalText = textOutput;
+
+      // Same-URL detection: if last 3 URLs are identical
+      if (urlHistory.length >= 3) {
+        const last3Urls = urlHistory.slice(-3);
+        if (last3Urls.every(u => u === last3Urls[0])) {
+          finalText += '\n[SYSTEM: Same URL for 3 consecutive steps — try scrolling, taking a screenshot, or a completely different approach]';
+        }
+      }
+
+      // Action repetition detection: if last 3 actions are identical
+      if (actionLog.length >= 3) {
+        const last3 = actionLog.slice(-3);
+        if (last3[0] === last3[1] && last3[1] === last3[2]) {
+          finalText += '\n[SYSTEM: Same action repeated 3 times — you are stuck in a loop. Take a completely different approach.]';
+        }
+      }
+
+      resultContent.push({ type: "text", text: finalText });
 
       // Add screenshot if present
       if (result.screenshot) {

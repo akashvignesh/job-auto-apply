@@ -54,6 +54,45 @@ const OVERHEAD_TOKENS = 6500;
 const COMPACTION_THRESHOLD = 30000;
 
 /**
+ * Phase C — proactive (turn-cadence) compaction.
+ *
+ * The Workday 2026-05-29 run showed compaction firing at ~85K tokens with 0%
+ * reduction (the most-recent message held a 20K-char DOM + screenshot the
+ * summarizer cannot compress), then climbing to 114K and aborting. The fix:
+ * fire EARLIER and PERIODICALLY, before any single message has had time to
+ * grow uncompressable, instead of waiting for the 30K hard threshold.
+ *
+ * - PROACTIVE_THRESHOLD: lower token bar that the turn-cadence path uses.
+ *   We don't proactively compact a small conversation just because the
+ *   counter hit N turns; tokens still need to be non-trivial.
+ * - MIN_TURNS_BETWEEN_COMPACTIONS: how many agent turns must elapse before
+ *   the next proactive fire. Keeps us from running the summarizer LLM call
+ *   every turn.
+ */
+const PROACTIVE_THRESHOLD = 15000;
+const MIN_TURNS_BETWEEN_COMPACTIONS = 8;
+
+export { PROACTIVE_THRESHOLD, MIN_TURNS_BETWEEN_COMPACTIONS };
+
+/**
+ * Returns true when the caller's loop should fire proactive compaction this
+ * turn. Pure function — exported so the agent loop and the tests can share
+ * the same decision logic.
+ *
+ * @param {Object} opts
+ * @param {number} opts.tokens                 current message-window token count
+ * @param {number} opts.turn                   current loop turn (1-indexed)
+ * @param {number} opts.lastCompactedAt        the turn at which we last compacted (0 = never)
+ * @returns {boolean}
+ */
+export function shouldProactivelyCompact({ tokens, turn, lastCompactedAt }) {
+  if (!Number.isFinite(tokens) || tokens < PROACTIVE_THRESHOLD) return false;
+  if (!Number.isFinite(turn) || turn <= 0) return false;
+  const since = turn - (Number.isFinite(lastCompactedAt) ? lastCompactedAt : 0);
+  return since >= MIN_TURNS_BETWEEN_COMPACTIONS;
+}
+
+/**
  * Estimate tokens for text content
  * Uses ~3.2 chars per token (conservative estimate for mixed content)
  * Actual tokenization varies, but this errs on the safe side
@@ -383,7 +422,7 @@ async function emergencyCompact(messages, log) {
  * @param {Function} log - Logging function
  * @returns {Promise<Array<Object>>} Original or compacted messages
  */
-export async function compactIfNeeded(messages, callLLM, log) {
+export async function compactIfNeeded(messages, callLLM, log, opts = {}) {
   const tokens = calculateContextTokens(messages);
 
   // Log token count periodically for debugging
@@ -391,11 +430,25 @@ export async function compactIfNeeded(messages, callLLM, log) {
     await log('COMPACT', `Context size: ${tokens.toLocaleString()} tokens (threshold: ${COMPACTION_THRESHOLD.toLocaleString()})`);
   }
 
-  if (tokens < COMPACTION_THRESHOLD) {
+  // Phase C — proactive (turn-cadence) path. The agent loop passes its own
+  // turn counter and a `lastCompactedAt` so we can fire BEFORE the 30K hard
+  // threshold when many turns have elapsed without compaction. The signal
+  // helps catch slow drift toward the abort-cascade we saw at turn 60 of the
+  // 2026-05-29 log (114K tokens → emergency compact).
+  const proactive = shouldProactivelyCompact({
+    tokens,
+    turn: Number(opts.turn) || 0,
+    lastCompactedAt: Number(opts.lastCompactedAt) || 0,
+  });
+
+  if (tokens < COMPACTION_THRESHOLD && !proactive) {
     return messages;
   }
 
-  await log('COMPACT', `Context at ${tokens.toLocaleString()} tokens, compacting...`);
+  const reason = proactive && tokens < COMPACTION_THRESHOLD
+    ? `proactive (${tokens.toLocaleString()} tokens, ${opts.turn} turns since last)`
+    : `${tokens.toLocaleString()} tokens`;
+  await log('COMPACT', `Context at ${reason}, compacting...`);
 
   try {
     return await compactConversation(messages, callLLM, log);
