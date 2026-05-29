@@ -255,22 +255,71 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
     }
   }
 
+  // Phase 4b: 4-step click failure chain (instead of single attempt)
   try {
     const secCheck = await securityCheck(tabId, originalUrl, "click action");
     if (secCheck) {
       return secCheck;
     }
-    await cdpHelper.click(tabId, x, y, button, clickCount, modifiers, antiBot);
-    const actionName =
-      clickCount === 1 ? "Clicked" : clickCount === 2 ? "Double-clicked" : "Triple-clicked";
-    const mode = antiBot ? " (human-like)" : "";
-    return input.ref
-      ? { output: `${actionName} on element ${input.ref}${mode}` }
-      : {
-          output: `${actionName} at (${Math.round(input.coordinate[0])}, ${Math.round(
-            input.coordinate[1]
-          )})${mode}`,
-        };
+
+    // Step 1: Normal CDP coordinate click
+    try {
+      await cdpHelper.click(tabId, x, y, button, clickCount, modifiers, antiBot);
+      const actionName =
+        clickCount === 1 ? "Clicked" : clickCount === 2 ? "Double-clicked" : "Triple-clicked";
+      const mode = antiBot ? " (human-like)" : "";
+      return input.ref
+        ? { output: `${actionName} on element ${input.ref}${mode}` }
+        : {
+            output: `${actionName} at (${Math.round(input.coordinate[0])}, ${Math.round(
+              input.coordinate[1]
+            )})${mode}`,
+          };
+    } catch (step1Err) {
+      console.log('[Computer] Step 1 (CDP click) failed:', step1Err.message);
+    }
+
+    // Step 2: If element is <a> with href, navigate directly
+    if (input.ref) {
+      try {
+        const hrefResult = await elementResolver.getProperty(tabId, input.ref, 'href');
+        if (hrefResult && typeof hrefResult === 'string' && hrefResult.startsWith('http')) {
+          await chrome.tabs.update(tabId, { url: hrefResult });
+          return { output: `Navigated to ${hrefResult} (link href — coordinate click failed)` };
+        }
+      } catch (_) { /* fallthrough */ }
+    }
+
+    // Step 3: JS element.click() via CDP Runtime
+    if (input.ref) {
+      try {
+        const clickResult = await elementResolver.callFunction(tabId, input.ref, '(el) => { el.click(); return "clicked"; }');
+        if (clickResult === 'clicked') {
+          console.log('[Computer] Step 3 (JS click) succeeded');
+          return { output: `Clicked element ${input.ref} (JS fallback)` };
+        }
+      } catch (_) { /* fallthrough */ }
+    }
+
+    // Step 4: Synthetic MouseEvent sequence
+    if (input.ref) {
+      try {
+        await elementResolver.callFunction(tabId, input.ref, `(el) => {
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          ['mousedown', 'mouseup', 'click'].forEach(t =>
+            el.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true, clientX:cx, clientY:cy}))
+          );
+        }`);
+        console.log('[Computer] Step 4 (synthetic event) succeeded');
+        return { output: `Clicked element ${input.ref} (synthetic event fallback)` };
+      } catch (_) { /* fallthrough */ }
+    }
+
+    // All steps failed
+    return {
+      error: `All click attempts failed for element ${input.ref || `(${Math.round(x)}, ${Math.round(y)})`}. Try scrolling to make it visible or use escalate tool.`,
+    };
   } catch (err) {
     return {
       error: `Error clicking: ${

@@ -1,6 +1,7 @@
 /**
  * Form tool handlers
  * Handles: form_input, file_upload
+ * Phase 6: Grounding validation for form inputs
  */
 
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
@@ -137,6 +138,16 @@ export async function handleFormInput(toolInput, deps) {
   const { tabId } = toolInput;
   const { sendToContent } = deps;
 
+  // Phase 6: Grounding validation — log if value might not be in profile
+  const log = deps?.log || console.log;
+  if (typeof toolInput.value === 'string' && toolInput.value.length > 3) {
+    // Non-blocking logging: warn if value looks fabricated
+    // This is informational only and doesn't block the action
+    if (toolInput.value.match(/^(test|demo|sample|example|fake|placeholder)/i)) {
+      log?.('[GROUNDING]', `form_input value may be fabricated: "${toolInput.value.slice(0, 40)}"`);
+    }
+  }
+
   const result = await sendToContent(tabId, 'FORM_INPUT', {
     ref: toolInput.ref,
     value: toolInput.value,
@@ -185,44 +196,52 @@ export async function handleFileUpload(toolInput, deps) {
       return 'Error: Could not attach debugger to tab';
     }
 
-    // Get the document root
-    const { root } = await sendDebuggerCommand(tabId, 'DOM.getDocument', {});
-
-    // Find the file input element
+    // Find the file input element.
+    //
+    // read_page refs are CDP backendNodeIds — they are GLOBAL and pierce shadow DOM and
+    // iframes. Resolve those first via pushNodesByBackendIdsToFrontend. The old code only
+    // tried CSS selectors (#ref, [data-ref], input[type=file]) against the document root,
+    // and DOM.querySelector cannot reach inputs inside shadow roots — which is exactly why
+    // iCIMS/Workday resume uploads failed repeatedly.
     let nodeId;
     const selectorToUse = selector || `input[type="file"]`;
+    const numericRef = ref != null && /^\d+$/.test(String(ref)) ? parseInt(String(ref), 10) : null;
 
-    if (ref) {
-      // Use ref attribute to find element - try multiple formats
-      const refSelectors = [
-        `[data-llm-ref="${ref}"]`,
-        `[data-ref="${ref}"]`,
-        `#${ref}`,
-      ];
-
-      for (const refSelector of refSelectors) {
-        try {
-          const result = await sendDebuggerCommand(tabId, 'DOM.querySelector', {
-            nodeId: root.nodeId,
-            selector: refSelector
-          });
-          if (result.nodeId && result.nodeId !== 0) {
-            nodeId = result.nodeId;
-            break;
-          }
-        } catch (e) {
-          // Try next selector
+    if (numericRef != null) {
+      try {
+        const pushed = await sendDebuggerCommand(tabId, 'DOM.pushNodesByBackendIdsToFrontend', {
+          backendNodeIds: [numericRef],
+        });
+        if (pushed?.nodeIds?.[0]) {
+          nodeId = pushed.nodeIds[0];
+          await log?.('FILE_UPLOAD', `Resolved ref ${numericRef} via backendNodeId (shadow-DOM safe)`);
         }
+      } catch (e) {
+        // fall through to selector resolution
       }
     }
 
+    // Selector fallback (top-level inputs only; will not reach shadow DOM).
     if (!nodeId) {
-      // Use CSS selector as fallback
-      const result = await sendDebuggerCommand(tabId, 'DOM.querySelector', {
-        nodeId: root.nodeId,
-        selector: selectorToUse
-      });
-      nodeId = result.nodeId;
+      const { root } = await sendDebuggerCommand(tabId, 'DOM.getDocument', {});
+      if (ref && numericRef == null) {
+        for (const refSelector of [`[data-llm-ref="${ref}"]`, `[data-ref="${ref}"]`, `#${ref}`]) {
+          try {
+            const result = await sendDebuggerCommand(tabId, 'DOM.querySelector', {
+              nodeId: root.nodeId,
+              selector: refSelector,
+            });
+            if (result.nodeId && result.nodeId !== 0) { nodeId = result.nodeId; break; }
+          } catch (e) { /* try next */ }
+        }
+      }
+      if (!nodeId) {
+        const result = await sendDebuggerCommand(tabId, 'DOM.querySelector', {
+          nodeId: root.nodeId,
+          selector: selectorToUse,
+        });
+        nodeId = result.nodeId;
+      }
     }
 
     if (!nodeId || nodeId === 0) {

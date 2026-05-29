@@ -515,6 +515,89 @@ The response will contain specific guidance on how to proceed.`,
       required: ['problem', 'what_i_need'],
     },
   },
+
+  // ---------------------------------------------------------------------------
+  // Phase B — Webwright-inspired batching + verification.
+  // ---------------------------------------------------------------------------
+  {
+    name: 'run_script',
+    description: `Execute MULTIPLE action steps in ONE tool call. Use this whenever you have a string of independent steps that target the same page — e.g. 6 form_input calls in a row, or "click Save and Continue then verify_action navigated". One run_script with N actions costs you one LLM turn instead of N. Each action runs the same as if you had called the tool directly.
+
+WHEN TO USE:
+- You have ≥3 form_input or click calls planned with no need to read the page between them.
+- A wizard step you have already filled the fields for, where you just need to press Save and Continue.
+- A learned-plan injection that lists ≥3 batched steps.
+
+WHEN NOT TO USE:
+- You need to read_page between steps (read_page is NOT allowed inside the batch — call it before or after).
+- Steps are conditional on the result of an earlier step (run smaller batches instead).
+
+Each action is {tool, input} where tool ∈ {form_input, computer, file_upload, navigate}. All steps run in order. By default the batch CONTINUES on per-action errors and reports them — set stopOnError=true to halt at the first failure. Returns a per-action status line for each step plus a summary.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        actions: {
+          type: 'array',
+          description: 'Ordered list of action steps. Each item must be {tool, input}.',
+          items: {
+            type: 'object',
+            properties: {
+              tool: {
+                type: 'string',
+                description: 'Tool to invoke. Allowed: form_input | computer | file_upload | navigate.',
+              },
+              input: {
+                type: 'object',
+                description: 'The exact input you would pass if calling the tool directly.',
+              },
+            },
+            required: ['tool', 'input'],
+          },
+        },
+        stopOnError: {
+          type: 'boolean',
+          description: 'If true, abort the batch on the first failing action. Default false — continue and report every action.',
+        },
+      },
+      required: ['actions'],
+    },
+  },
+
+  {
+    name: 'verify_action',
+    description: `Confirm that a previous action actually changed the page state, WITHOUT spending a read_page round-trip. Polls a single observable condition (URL change, text appears, element disappears, modal appears) and returns ok=true/false with evidence.
+
+Use after Submit, Save and Continue, navigation clicks, or any action where the next step depends on the page advancing. Much cheaper than read_page when you only need a yes/no.
+
+expect modes:
+- "navigated"        — URL changed. Optional hint = substring or regex source the new URL should contain.
+- "text-appeared"    — hint substring is now visible in document.body.innerText.
+- "ref-disappeared"  — hint is a backendNodeId (number); poll until DOM.resolveNode fails.
+- "modal-present"    — a [role=dialog]/[role=alertdialog]/Workday taskModal element is visible.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        expect: {
+          type: 'string',
+          enum: ['navigated', 'text-appeared', 'ref-disappeared', 'modal-present'],
+          description: 'Which observable to wait for.',
+        },
+        hint: {
+          type: 'string',
+          description: 'Text/ref/URL substring that qualifies the expectation. See expect docs above for per-mode meaning.',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'How long to poll, in ms. Clamped to [200, 15000]. Default 3000.',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Tab ID. Optional — defaults to the active tab in your window.',
+        },
+      },
+      required: ['expect'],
+    },
+  },
 ];
 
 /**

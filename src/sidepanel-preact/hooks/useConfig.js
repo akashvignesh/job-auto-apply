@@ -1,26 +1,8 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { PROVIDERS, CODEX_MODELS, LOCAL_MODELS } from '../config/providers';
-
-const GOOGLE_OPENAI_COMPAT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-
-function isGoogleOpenAICompatibleChatModel(model = '') {
-  if (model.startsWith('gemma-4-')) return true;
-  if (!model.startsWith('gemini-')) return false;
-
-  return ![
-    'image',
-    'tts',
-    'audio',
-    'live',
-    'embedding',
-    'robotics',
-    'computer-use',
-  ].some(fragment => model.includes(fragment));
-}
+import { PROVIDERS } from '../config/providers';
 
 function serializeModelConfig(model) {
   if (!model) return null;
-
   return {
     name: model.name,
     provider: model.provider,
@@ -32,10 +14,7 @@ function serializeModelConfig(model) {
 }
 
 function findModelIndex(models, selection) {
-  if (!selection || !selection.model || !selection.apiBaseUrl) {
-    return -1;
-  }
-
+  if (!selection || !selection.model || !selection.apiBaseUrl) return -1;
   return models.findIndex(model =>
     model.modelId === selection.model &&
     model.baseUrl === selection.apiBaseUrl &&
@@ -53,14 +32,92 @@ export function useConfig() {
   const [builtInSkills, setBuiltInSkills] = useState([]);
   const [availableModels, setAvailableModels] = useState([]);
   const [oauthStatus, setOauthStatus] = useState({ isOAuthEnabled: false, isAuthenticated: false });
-  const [codexStatus, setCodexStatus] = useState({ isAuthenticated: false });
   const [isLoading, setIsLoading] = useState(true);
   const [onboarding, setOnboarding] = useState({ completed: true, primaryMode: null });
-  const [googleFetchedModels, setGoogleFetchedModels] = useState([]);
 
-  // Load config on mount
   useEffect(() => {
     loadConfig();
+  }, []);
+
+  const buildAvailableModels = useCallback(async (keys, custom, oauth) => {
+    const models = [];
+    const hasOAuth = oauth?.isOAuthEnabled && oauth?.isAuthenticated;
+    const anthropic = PROVIDERS.anthropic;
+    const bedrock = PROVIDERS.bedrock;
+    const deepseek = PROVIDERS.deepseek;
+    const anthropicKey = keys.anthropic;
+    const bedrockKey = keys.bedrock;
+    const deepseekKey = keys.deepseek;
+
+    // Claude Pro/Max via `claude login`
+    if (hasOAuth) {
+      for (const model of anthropic.models) {
+        models.push({
+          name: `${model.name} (Claude Code)`,
+          provider: 'anthropic',
+          modelId: model.id,
+          baseUrl: anthropic.baseUrl,
+          apiKey: null,
+          authMethod: 'oauth',
+        });
+      }
+    }
+
+    // Direct Anthropic API key
+    if (anthropicKey) {
+      for (const model of anthropic.models) {
+        models.push({
+          name: `${model.name} (Anthropic API)`,
+          provider: 'anthropic',
+          modelId: model.id,
+          baseUrl: anthropic.baseUrl,
+          apiKey: anthropicKey,
+          authMethod: 'api_key',
+        });
+      }
+    }
+
+    // Amazon Bedrock API key
+    if (bedrockKey) {
+      for (const model of bedrock.models) {
+        models.push({
+          name: model.name,
+          provider: 'bedrock',
+          modelId: model.id,
+          baseUrl: bedrock.baseUrl,
+          apiKey: bedrockKey,
+          authMethod: 'api_key',
+        });
+      }
+    }
+
+    // DeepSeek API key (OpenAI-compatible; converted by DeepSeekProvider)
+    if (deepseekKey) {
+      for (const model of deepseek.models) {
+        models.push({
+          name: model.name,
+          provider: 'deepseek',
+          modelId: model.id,
+          baseUrl: deepseek.baseUrl,
+          apiKey: deepseekKey,
+          authMethod: 'api_key',
+        });
+      }
+    }
+
+    // Custom endpoints (kept for advanced users running a local ccproxy etc.)
+    for (const customModel of custom) {
+      models.push({
+        name: customModel.name,
+        provider: 'anthropic',
+        modelId: customModel.modelId,
+        baseUrl: customModel.baseUrl,
+        apiKey: customModel.apiKey,
+        authMethod: 'api_key',
+      });
+    }
+
+    setAvailableModels(models);
   }, []);
 
   const loadConfig = useCallback(async () => {
@@ -73,183 +130,23 @@ export function useConfig() {
       setUserSkills(config.userSkills || []);
       setBuiltInSkills(config.builtInSkills || []);
 
-      // Load onboarding state + cached Google models
-      const obState = await chrome.storage.local.get([
-        'onboarding_completed', 'onboarding_primary_mode', 'googleFetchedModels'
-      ]);
+      const obState = await chrome.storage.local.get(['onboarding_completed', 'onboarding_primary_mode']);
       setOnboarding({
         completed: obState.onboarding_completed !== false,
         primaryMode: obState.onboarding_primary_mode || null,
       });
-      const cachedGoogleModels = obState.googleFetchedModels || [];
-      setGoogleFetchedModels(cachedGoogleModels);
 
-      // Get OAuth statuses
       const oauth = await chrome.runtime.sendMessage({ type: 'GET_OAUTH_STATUS' });
       setOauthStatus(oauth || { isOAuthEnabled: false, isAuthenticated: false });
 
-      const codex = await chrome.runtime.sendMessage({ type: 'GET_CODEX_STATUS' });
-      setCodexStatus(codex || { isAuthenticated: false });
-
-      // Build available models
-      await buildAvailableModels(
-        config.providerKeys || {},
-        config.customModels || [],
-        oauth,
-        codex,
-        cachedGoogleModels
-      );
+      await buildAvailableModels(config.providerKeys || {}, config.customModels || [], oauth);
 
       setIsLoading(false);
     } catch (error) {
       console.error('Failed to load config:', error);
       setIsLoading(false);
     }
-  }, []);
-
-  const buildAvailableModels = useCallback(async (keys, custom, oauth, codex, fetchedGoogleModels = []) => {
-    const models = [];
-    const hasOAuth = oauth?.isOAuthEnabled && oauth?.isAuthenticated;
-    const hasCodexOAuth = codex?.isAuthenticated;
-
-    // Add pre-configured local models first (always available, no API key needed)
-    for (const localModel of LOCAL_MODELS) {
-      models.push({
-        name: localModel.name,
-        provider: 'openai',
-        modelId: localModel.modelId,
-        baseUrl: localModel.baseUrl,
-        apiKey: localModel.apiKey,
-        authMethod: 'api_key',
-      });
-    }
-
-    // Add Codex Plan models if connected
-    if (hasCodexOAuth) {
-      for (const model of CODEX_MODELS) {
-        models.push({
-          name: `${model.name} (Codex Plan)`,
-          provider: 'codex',
-          modelId: model.id,
-          baseUrl: 'https://chatgpt.com/backend-api/codex/responses',
-          apiKey: null,
-          authMethod: 'codex_oauth',
-        });
-      }
-    }
-
-    // Add provider models
-    for (const [providerId, provider] of Object.entries(PROVIDERS)) {
-      const hasApiKey = keys[providerId];
-
-      if (providerId === 'anthropic') {
-        // Add OAuth models (Claude Code Plan)
-        if (hasOAuth) {
-          for (const model of provider.models) {
-            models.push({
-              name: `${model.name} (Claude Code)`,
-              provider: providerId,
-              modelId: model.id,
-              baseUrl: provider.baseUrl,
-              apiKey: null,
-              authMethod: 'oauth',
-            });
-          }
-        }
-        // Add API key models
-        if (hasApiKey) {
-          for (const model of provider.models) {
-            models.push({
-              name: `${model.name} (API)`,
-              provider: providerId,
-              modelId: model.id,
-              baseUrl: provider.baseUrl,
-              apiKey: hasApiKey,
-              authMethod: 'api_key',
-            });
-          }
-        }
-      } else if (providerId === 'vertex' && hasApiKey) {
-        // Vertex AI: extract project_id from service account JSON to build the URL
-        let vertexBaseUrl = '';
-        try {
-          const sa = JSON.parse(hasApiKey);
-          const projectId = sa.project_id;
-          const region = 'us-central1';
-          vertexBaseUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}`;
-        } catch {
-          console.warn('[Config] Invalid Vertex AI service account JSON');
-        }
-
-        if (vertexBaseUrl) {
-          for (const model of provider.models) {
-            models.push({
-              name: `${model.name} (Vertex AI)`,
-              provider: 'google', // Use GoogleProvider which handles both
-              modelId: model.id,
-              baseUrl: vertexBaseUrl,
-              apiKey: hasApiKey, // The full service account JSON
-              authMethod: 'api_key',
-            });
-          }
-        }
-      } else if (hasApiKey) {
-        const modelList = (providerId === 'google' && fetchedGoogleModels.length > 0)
-          ? fetchedGoogleModels
-          : provider.models;
-        for (const model of modelList) {
-          const useOpenAICompat = providerId === 'google' && isGoogleOpenAICompatibleChatModel(model.id);
-          models.push({
-            name: `${model.name} (API)`,
-            provider: useOpenAICompat ? 'openai' : providerId,
-            modelId: model.id,
-            baseUrl: useOpenAICompat ? GOOGLE_OPENAI_COMPAT_BASE_URL : provider.baseUrl,
-            apiKey: hasApiKey,
-            authMethod: 'api_key',
-          });
-        }
-      }
-    }
-
-    // Add custom models
-    for (const customModel of custom) {
-      models.push({
-        name: customModel.name,
-        provider: 'openai',
-        modelId: customModel.modelId,
-        baseUrl: customModel.baseUrl,
-        apiKey: customModel.apiKey,
-        authMethod: 'api_key',
-      });
-    }
-
-    setAvailableModels(models);
-  }, []);
-
-  const fetchGoogleModels = useCallback(async (apiKey) => {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=200`
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const models = (data.models || [])
-        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-        .map(m => ({
-          id: m.name.replace('models/', ''),
-          name: m.displayName || m.name.replace('models/', ''),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      setGoogleFetchedModels(models);
-      await chrome.storage.local.set({ googleFetchedModels: models });
-      return { success: true, count: models.length };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  }, []);
+  }, [buildAvailableModels]);
 
   const saveConfig = useCallback(async (overrideKeys) => {
     const keysToSave = overrideKeys || providerKeys;
@@ -262,18 +159,14 @@ export function useConfig() {
         userSkills,
       },
     });
-    if (overrideKeys) {
-      setProviderKeys(overrideKeys);
-    }
-    // Rebuild model list so newly added API keys show their models immediately
-    await buildAvailableModels(keysToSave, customModels, oauthStatus, codexStatus, googleFetchedModels);
-  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, codexStatus, googleFetchedModels, buildAvailableModels]);
+    if (overrideKeys) setProviderKeys(overrideKeys);
+    await buildAvailableModels(keysToSave, customModels, oauthStatus);
+  }, [providerKeys, customModels, currentModelIndex, userSkills, oauthStatus, buildAvailableModels]);
 
   const selectModel = useCallback(async (index) => {
     setCurrentModelIndex(index);
     const model = availableModels[index];
     if (model) {
-      // Clear conversation history when switching models to prevent identity confusion
       await chrome.runtime.sendMessage({ type: 'CLEAR_CHAT' }).catch(() => {});
       await chrome.runtime.sendMessage({
         type: 'SAVE_CONFIG',
@@ -292,14 +185,11 @@ export function useConfig() {
   const selectAgentDefault = useCallback(async (index) => {
     const model = availableModels[index];
     if (!model) return;
-
     const serialized = serializeModelConfig(model);
     setAgentDefaultConfig(serialized);
     await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      payload: {
-        agentDefaultConfig: serialized,
-      },
+      payload: { agentDefaultConfig: serialized },
     });
   }, [availableModels]);
 
@@ -333,9 +223,7 @@ export function useConfig() {
 
   const importCLI = useCallback(async () => {
     const result = await chrome.runtime.sendMessage({ type: 'IMPORT_CLI_CREDENTIALS' });
-    if (result.success) {
-      await loadConfig();
-    }
+    if (result.success) await loadConfig();
     return result;
   }, [loadConfig]);
 
@@ -344,24 +232,10 @@ export function useConfig() {
     await loadConfig();
   }, [loadConfig]);
 
-  const importCodex = useCallback(async () => {
-    const result = await chrome.runtime.sendMessage({ type: 'IMPORT_CODEX_CREDENTIALS' });
-    if (result.success) {
-      await loadConfig();
-    }
-    return result;
-  }, [loadConfig]);
-
-  const logoutCodex = useCallback(async () => {
-    await chrome.runtime.sendMessage({ type: 'CODEX_LOGOUT' });
-    await loadConfig();
-  }, [loadConfig]);
-
   const currentModel = availableModels[currentModelIndex] || null;
   const currentAgentDefaultIndex = findModelIndex(availableModels, agentDefaultConfig);
 
   return {
-    // State
     providerKeys,
     customModels,
     currentModelIndex,
@@ -372,11 +246,9 @@ export function useConfig() {
     currentModel,
     currentAgentDefaultIndex,
     oauthStatus,
-    codexStatus,
     isLoading,
     onboarding,
 
-    // Actions
     loadConfig,
     saveConfig,
     selectModel,
@@ -388,9 +260,5 @@ export function useConfig() {
     removeUserSkill,
     importCLI,
     logoutCLI,
-    importCodex,
-    logoutCodex,
-    fetchGoogleModels,
-    googleFetchedModels,
   };
 }

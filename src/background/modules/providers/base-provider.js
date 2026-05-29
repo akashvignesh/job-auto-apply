@@ -73,4 +73,14 @@ export class BaseProvider {
   static matchesUrl(_baseUrl) {
     throw new Error('Provider must implement static matchesUrl()');
   }
+
+  /**
+   * Whether the active model is a Claude model. Gates Claude-specific system-prompt
+   * content (the "You are Claude Code" identity marker and turn_answer_start instructions).
+   * Defaults to true (custom Anthropic-compatible endpoints assume Claude).
+   * @returns {boolean}
+   */
+  isClaudeModel() {
+    return true;
+  }
 }
