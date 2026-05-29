@@ -922,6 +922,7 @@ ${mcpSession.context}</system-reminder>`,
   let messages = [...existingHistory, { role: 'user', content: userContent }];
   let steps = 0;
   const filledFieldsCache = new Map(); // Track ref→value for successful form fills to prevent re-fills
+  const uploadedFilesCache = new Set(); // Track filePath of successful uploads — prevents re-uploading the same resume after a compaction (a Workday run uploaded resume.pdf 3x)
   const loopWarnedKeys = new Set(); // Loop-detection: keys we've already warned the agent about
   let sameUrlStreak = 0;            // Consecutive turns on the same URL (no navigation)
   let lastStreakUrl = null;         // URL the streak is counting
@@ -1158,6 +1159,22 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         }
       }
 
+      // Dedup: skip file_upload if this exact file was already uploaded to this input. After a
+      // compaction the agent forgets it uploaded the resume and re-uploads it (one Workday run
+      // attached resume.pdf 3 times). The ref is stable while the page isn't reloaded, so keying on
+      // ref+filePath blocks the re-upload while still allowing a genuinely different slot/file.
+      if (toolUse.name === 'file_upload' && toolUse.input?.ref) {
+        const rawPath = toolUse.input.filePath || toolUse.input.file_path || '';
+        const uploadKey = String(toolUse.input.ref) + '::' + rawPath;
+        if (rawPath && uploadedFilesCache.has(uploadKey)) {
+          await taskLog('TOOL', `Skipping duplicate file_upload: "${rawPath}" already uploaded to ref=${toolUse.input.ref}`);
+          const skipResult = { toolResult: { type: 'tool_result', tool_use_id: toolUse.id, content: `Already uploaded: "${rawPath}" is attached to ref=${toolUse.input.ref}. Do NOT upload it again. Move to the next field or click Submit/Next.` }, updatePayload: { step: steps, status: 'executed', tool: 'file_upload', input: toolUse.input, result: 'skipped (already uploaded)' } };
+          toolResults.push(skipResult.toolResult);
+          onUpdate(skipResult.updatePayload);
+          continue;
+        }
+      }
+
       const toolStartTime = Date.now();
       const result = await executeTool(toolUse.name, toolUse.input, sessionTabGroupId, mcpSession, {
         askBeforeActing,
@@ -1211,6 +1228,15 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
         const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
         if (/(Set [a-z]+ to|Selected|Checkbox (checked|unchecked)|Radio button)/.test(resultStr)) {
           filledFieldsCache.set(String(toolUse.input.ref), toolUse.input.value);
+        }
+      }
+
+      // Cache successful uploads so a post-compaction re-upload of the same file is skipped.
+      if (toolUse.name === 'file_upload' && toolUse.input?.ref && !isError) {
+        const rawPath = toolUse.input.filePath || toolUse.input.file_path || '';
+        const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
+        if (rawPath && /Successfully uploaded/i.test(resultStr)) {
+          uploadedFilesCache.add(String(toolUse.input.ref) + '::' + rawPath);
         }
       }
 

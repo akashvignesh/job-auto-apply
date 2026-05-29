@@ -1,6 +1,7 @@
 /**
  * Form tool handlers
  * Handles: form_input, file_upload
+ * Phase 6: Grounding validation for form inputs
  */
 
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
@@ -136,6 +137,16 @@ async function resolveFilePath(input) {
 export async function handleFormInput(toolInput, deps) {
   const { tabId } = toolInput;
   const { sendToContent } = deps;
+
+  // Phase 6: Grounding validation — log if value might not be in profile
+  const log = deps?.log || console.log;
+  if (typeof toolInput.value === 'string' && toolInput.value.length > 3) {
+    // Non-blocking logging: warn if value looks fabricated
+    // This is informational only and doesn't block the action
+    if (toolInput.value.match(/^(test|demo|sample|example|fake|placeholder)/i)) {
+      log?.('[GROUNDING]', `form_input value may be fabricated: "${toolInput.value.slice(0, 40)}"`);
+    }
+  }
 
   const result = await sendToContent(tabId, 'FORM_INPUT', {
     ref: toolInput.ref,

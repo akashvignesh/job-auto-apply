@@ -44,8 +44,10 @@ export function useConfig() {
     const hasOAuth = oauth?.isOAuthEnabled && oauth?.isAuthenticated;
     const anthropic = PROVIDERS.anthropic;
     const bedrock = PROVIDERS.bedrock;
+    const deepseek = PROVIDERS.deepseek;
     const anthropicKey = keys.anthropic;
     const bedrockKey = keys.bedrock;
+    const deepseekKey = keys.deepseek;
 
     // Claude Pro/Max via `claude login`
     if (hasOAuth) {
@@ -84,6 +86,20 @@ export function useConfig() {
           modelId: model.id,
           baseUrl: bedrock.baseUrl,
           apiKey: bedrockKey,
+          authMethod: 'api_key',
+        });
+      }
+    }
+
+    // DeepSeek API key (OpenAI-compatible; converted by DeepSeekProvider)
+    if (deepseekKey) {
+      for (const model of deepseek.models) {
+        models.push({
+          name: model.name,
+          provider: 'deepseek',
+          modelId: model.id,
+          baseUrl: deepseek.baseUrl,
+          apiKey: deepseekKey,
           authMethod: 'api_key',
         });
       }

@@ -35,8 +35,10 @@ function useConfig() {
     const hasOAuth = (oauth == null ? void 0 : oauth.isOAuthEnabled) && (oauth == null ? void 0 : oauth.isAuthenticated);
     const anthropic = PROVIDERS.anthropic;
     const bedrock = PROVIDERS.bedrock;
+    const deepseek = PROVIDERS.deepseek;
     const anthropicKey = keys.anthropic;
     const bedrockKey = keys.bedrock;
+    const deepseekKey = keys.deepseek;
     if (hasOAuth) {
       for (const model of anthropic.models) {
         models.push({
@@ -69,6 +71,18 @@ function useConfig() {
           modelId: model.id,
           baseUrl: bedrock.baseUrl,
           apiKey: bedrockKey,
+          authMethod: "api_key"
+        });
+      }
+    }
+    if (deepseekKey) {
+      for (const model of deepseek.models) {
+        models.push({
+          name: model.name,
+          provider: "deepseek",
+          modelId: model.id,
+          baseUrl: deepseek.baseUrl,
+          apiKey: deepseekKey,
           authMethod: "api_key"
         });
       }
@@ -1144,13 +1158,15 @@ function ConnectionsTab({
     ] }),
     /* @__PURE__ */ u("hr", {}),
     /* @__PURE__ */ u("div", { class: "provider-section", children: [
-      /* @__PURE__ */ u("h4", { children: "Amazon Bedrock (Claude via AWS)" }),
+      /* @__PURE__ */ u("h4", { children: "Amazon Bedrock (Claude & Kimi via AWS)" }),
       /* @__PURE__ */ u("p", { class: "provider-desc", children: [
-        "Use Claude via your AWS account. Default region ",
+        "Use Claude or ",
+        /* @__PURE__ */ u("strong", { children: "Kimi K2.5" }),
+        " (multimodal — handles screenshots) via your AWS account. Default region ",
         /* @__PURE__ */ u("code", { children: "us-east-1" }),
         " with cross-region inference profile (US). Generate a Bedrock API key in the AWS console (",
         /* @__PURE__ */ u("em", { children: "Bedrock → API keys → Create" }),
-        ") and request access to the Claude models you want to use."
+        ") and request access to the models you want to use."
       ] }),
       /* @__PURE__ */ u("div", { class: "api-key-input", children: [
         /* @__PURE__ */ u("label", { children: "Bedrock API Key" }),
@@ -1165,6 +1181,29 @@ function ConnectionsTab({
         )
       ] }),
       /* @__PURE__ */ u("p", { class: "provider-desc", style: { fontSize: "0.8em", marginTop: "8px", opacity: 0.7 }, children: "Note: streaming is not supported on Bedrock in this build — responses arrive as a single chunk. To use a different region, add it as a custom endpoint below." })
+    ] }),
+    /* @__PURE__ */ u("hr", {}),
+    /* @__PURE__ */ u("div", { class: "provider-section", children: [
+      /* @__PURE__ */ u("h4", { children: "DeepSeek API key" }),
+      /* @__PURE__ */ u("p", { class: "provider-desc", children: [
+        "Pay-per-token via your own DeepSeek API key. ",
+        /* @__PURE__ */ u("code", { children: "deepseek-v4-pro" }),
+        " is the strongest for agentic/tool tasks; ",
+        /* @__PURE__ */ u("code", { children: "deepseek-v4-flash" }),
+        " is faster and cheaper. Note: the DeepSeek API is text-only — screenshots aren't sent, so the agent works from page text."
+      ] }),
+      /* @__PURE__ */ u("div", { class: "api-key-input", children: [
+        /* @__PURE__ */ u("label", { children: "API Key" }),
+        /* @__PURE__ */ u(
+          "input",
+          {
+            type: "password",
+            value: localKeys.deepseek || "",
+            onInput: (e) => setLocalKeys({ ...localKeys, deepseek: e.target.value }),
+            placeholder: "sk-..."
+          }
+        )
+      ] })
     ] }),
     /* @__PURE__ */ u("details", { class: "advanced-section", style: { marginTop: "16px" }, children: [
       /* @__PURE__ */ u("summary", { children: "Custom Anthropic-compatible endpoint" }),

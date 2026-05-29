@@ -8,11 +8,14 @@
  *   3. macOS Keychain               → Claude Code OAuth
  *
  * Vertex AI (Gemini) is kept as an optional override: set VERTEX_SERVICE_ACCOUNT_JSON
- * env var to re-enable it. Otherwise the project runs entirely on Claude.
+ * env var to re-enable it. DeepSeek V4 is available as an override too: set
+ * DEEPSEEK_API_KEY (and optionally DEEPSEEK_MODEL, default `deepseek-v4-pro`).
+ * Otherwise the project runs entirely on Claude.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { resolveCredentials, refreshClaudeToken, saveClaudeCredentials, } from "./credentials.js";
 import { callVertexLLM, isVertexConfigured } from "./vertex.js";
+import { callDeepSeekLLM, isDeepSeekConfigured } from "./deepseek.js";
 // ─── Config ─────────────────────────────────────────────────────────────────
 /** Default model — Claude Haiku 4.5 is fast and cheap; swap to sonnet/opus as needed */
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
@@ -54,13 +57,17 @@ function buildClient(source) {
 /**
  * Call the LLM using the Anthropic SDK.
  *
- * Routes to Vertex AI (Gemini) only if VERTEX_SERVICE_ACCOUNT_JSON is set.
- * Otherwise always uses Claude via SDK + Claude Code credentials.
+ * Routes to Vertex AI (Gemini) if VERTEX_SERVICE_ACCOUNT_JSON is set, then to
+ * DeepSeek if DEEPSEEK_API_KEY is set. Otherwise uses Claude via SDK + Claude Code credentials.
  */
 export async function callLLM(params) {
     // Optional legacy override: Vertex AI (Gemini)
     if (isVertexConfigured()) {
         return callVertexLLM(params);
+    }
+    // Optional override: DeepSeek V4 (OpenAI-compatible API)
+    if (isDeepSeekConfigured()) {
+        return callDeepSeekLLM(params);
     }
     const { messages, system, tools, model = DEFAULT_MODEL, maxTokens = DEFAULT_MAX_TOKENS, signal, onText, } = params;
     let source = getSource();

@@ -20,6 +20,8 @@
 import { buildSnapshotLookup, REQUIRED_COMPUTED_STYLES } from './snapshot-lookup.js';
 import { buildAxLookup, buildEnhancedTree } from './tree-builder.js';
 import { serializeDomTree } from './serializer.js';
+import { injectElementDetector } from './js-injector.js';
+import { extractJsonLd, formatJsonLdSection } from './content-extractor.js';
 
 // Tags that are never semantically interactive on their own but often carry
 // React/Vue addEventListener bindings.  We only query these for event listeners.
@@ -160,11 +162,13 @@ async function captureSnapshotPhased(cdp, snapshotTimeoutMs) {
  * @param {Object} [options]
  * @param {number} [options.maxChars=40000]
  * @param {Set<number>} [options.eventListenerSet] - backendNodeIds with JS click listeners
+ * @param {string} [options.jsElementList] - Compact element list from Phase 1 JS injection
+ * @param {Array} [options.jsonLdObjects] - Parsed JSON-LD objects from Phase 0b
  * @returns {{ text: string, selectorMap: Map<number, Object>, stats: Object }}
  */
 export function processCdpData(rawCdp, options = {}) {
   const { dom_snapshot, dom_tree, ax_tree, layout_metrics } = rawCdp;
-  const { eventListenerSet = new Set() } = options;
+  const { eventListenerSet = new Set(), jsElementList = null, jsonLdObjects = [] } = options;
 
   // Calculate device pixel ratio
   const cssViewport = layout_metrics?.cssVisualViewport || {};
@@ -214,6 +218,8 @@ export function processCdpData(rawCdp, options = {}) {
     ...options,
     viewportWidth,
     viewportHeight,
+    jsElementList,
+    jsonLdObjects,
   });
 
   return {
@@ -276,6 +282,22 @@ export async function extractDomState(tabId, sendCommand, options = {}) {
   ).catch((err) => {
     console.warn('[extractDomState] domain enable:', err?.message || err);
   });
+
+  // Phase 0: JS-first element detection (non-blocking, best-effort)
+  let jsElementList = null;
+  try {
+    jsElementList = await injectElementDetector(tabId, sendCommand);
+  } catch (_) {
+    // Silently skip if JS injection fails; fall through to pure CDP pipeline
+  }
+
+  // Phase 0b: Extract JSON-LD structured data
+  let jsonLdObjects = [];
+  try {
+    jsonLdObjects = await extractJsonLd(tabId, sendCommand);
+  } catch (_) {
+    // Silently skip if extraction fails
+  }
 
   const frameTreeResult = await raceDeadline(cdp('Page.getFrameTree'), 8000, 'Page.getFrameTree');
 
@@ -359,7 +381,7 @@ export async function extractDomState(tabId, sendCommand, options = {}) {
     layout_metrics: layoutResult,
   };
 
-  const result = processCdpData(rawCdp, { maxChars, eventListenerSet });
+  const result = processCdpData(rawCdp, { maxChars, eventListenerSet, jsElementList, jsonLdObjects });
 
   let screenshot = null;
   if (includeScreenshot) {

@@ -840,9 +840,10 @@ export async function callLLM(messages, onTextChunk = null, log = () => {}, curr
     }
   }
 
-  // Direct path: Anthropic API key auth via fetch.
+  // Direct path: API key auth via fetch (Anthropic, Bedrock Claude/Kimi, or DeepSeek).
+  // The provider decides whether it's a Claude model (Kimi-on-Bedrock and DeepSeek are not).
   const activeProvider = provider;
-  const activeSystemPrompt = buildSystemPrompt({ isClaudeModel: true });
+  const activeSystemPrompt = buildSystemPrompt({ isClaudeModel: activeProvider.isClaudeModel() });
   const activeTools = effectiveConfig.disableTools ? [] : getToolsForUrl(currentUrl);
   const activeRequestBody = activeProvider.buildRequestBody(messages, activeSystemPrompt, activeTools, useStreaming);
   const activeApiUrl = activeProvider.buildUrl(useStreaming);

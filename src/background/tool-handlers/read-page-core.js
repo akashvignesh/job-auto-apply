@@ -83,9 +83,9 @@ export async function handleReadPage(input) {
   }
 
   // Clamp max_chars: the agent occasionally requests huge values (e.g. 80000) which inflate
-  // cost without helping — modals are hoisted to the top and the relevant form fields fit well
-  // under 30K. Cap defends against runaway reads.
-  const MAX_CHARS_CEILING = 30000;
+  // cost without helping. Phase 1 (JS element list) provides compact targeting signal,
+  // so CDP tree is for context only. Phase 2: reduce ceiling to 20K.
+  const MAX_CHARS_CEILING = 20000;
   const effectiveMaxChars = Math.min(max_chars ?? 20000, MAX_CHARS_CEILING);
 
   try {

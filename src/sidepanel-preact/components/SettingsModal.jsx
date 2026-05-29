@@ -212,12 +212,12 @@ function ConnectionsTab({
 
       {/* Amazon Bedrock */}
       <div class="provider-section">
-        <h4>Amazon Bedrock (Claude via AWS)</h4>
+        <h4>Amazon Bedrock (Claude &amp; Kimi via AWS)</h4>
         <p class="provider-desc">
-          Use Claude via your AWS account. Default region <code>us-east-1</code> with cross-region
-          inference profile (US). Generate a Bedrock API key in the AWS console
-          (<em>Bedrock → API keys → Create</em>) and request access to the Claude models you want
-          to use.
+          Use Claude or <strong>Kimi K2.5</strong> (multimodal — handles screenshots) via your AWS
+          account. Default region <code>us-east-1</code> with cross-region inference profile (US).
+          Generate a Bedrock API key in the AWS console (<em>Bedrock → API keys → Create</em>) and
+          request access to the models you want to use.
         </p>
         <div class="api-key-input">
           <label>Bedrock API Key</label>
@@ -232,6 +232,27 @@ function ConnectionsTab({
           Note: streaming is not supported on Bedrock in this build — responses arrive as a
           single chunk. To use a different region, add it as a custom endpoint below.
         </p>
+      </div>
+
+      <hr />
+
+      {/* DeepSeek API key */}
+      <div class="provider-section">
+        <h4>DeepSeek API key</h4>
+        <p class="provider-desc">
+          Pay-per-token via your own DeepSeek API key. <code>deepseek-v4-pro</code> is the strongest
+          for agentic/tool tasks; <code>deepseek-v4-flash</code> is faster and cheaper. Note: the
+          DeepSeek API is text-only — screenshots aren't sent, so the agent works from page text.
+        </p>
+        <div class="api-key-input">
+          <label>API Key</label>
+          <input
+            type="password"
+            value={localKeys.deepseek || ''}
+            onInput={(e) => setLocalKeys({ ...localKeys, deepseek: e.target.value })}
+            placeholder="sk-..."
+          />
+        </div>
       </div>
 
       {/* Custom endpoints — for advanced users running a local ccproxy */}

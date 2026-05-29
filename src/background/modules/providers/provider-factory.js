@@ -1,16 +1,17 @@
 /**
- * Provider Factory — Claude-only build.
+ * Provider Factory.
  *
- * Two providers supported: AnthropicProvider (api.anthropic.com) and BedrockProvider
- * (bedrock-runtime.{region}.amazonaws.com). Routing is by URL match; default falls back
- * to Anthropic, which is the right answer in this codebase since both providers expect
- * the same Anthropic Messages request shape.
+ * Providers supported: AnthropicProvider (api.anthropic.com), BedrockProvider
+ * (bedrock-runtime.{region}.amazonaws.com), and DeepSeekProvider (api.deepseek.com).
+ * Routing is by URL match; default falls back to Anthropic. Anthropic and Bedrock share the
+ * Anthropic Messages request shape; DeepSeek converts to/from the OpenAI shape internally.
  */
 
 import { AnthropicProvider } from './anthropic-provider.js';
 import { BedrockProvider } from './bedrock-provider.js';
+import { DeepSeekProvider } from './deepseek-provider.js';
 
-const PROVIDERS = [BedrockProvider, AnthropicProvider];
+const PROVIDERS = [BedrockProvider, DeepSeekProvider, AnthropicProvider];
 
 export function createProvider(baseUrl, config) {
   for (const P of PROVIDERS) {

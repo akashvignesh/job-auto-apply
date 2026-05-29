@@ -170,7 +170,17 @@ async function handleFormInput(payload, sendResponse) {
         (element.querySelector('[data-automation-id*="select"]') || element.closest('[data-automation-id*="select"]') ||
          element.closest('[data-automation-id*="dropdown"]'))));
 
-    if (isCombobox || comboboxAncestor || hasComboboxInput || isDropdownTrigger) {
+    // Workday searchable multiselect (School/University, Field of Study, Skills): the search box
+    // is a plain <input data-uxi-widget-type="selectinput"> inside a multiselect widget. It has
+    // no role=combobox / aria-autocomplete, so without this it falls through to plain-text
+    // handling — the value gets typed but the search is never committed and no option is clicked.
+    const isWorkdayMultiselect = !isCombobox && !comboboxAncestor && !hasComboboxInput &&
+      element.tagName === 'INPUT' &&
+      (element.getAttribute('data-uxi-widget-type') === 'selectinput' ||
+       (element.getAttribute('data-uxi-element-id') || '').startsWith('selectinput-') ||
+       element.closest('[data-uxi-widget-type="multiselect"], [data-automation-id="multiSelectContainer"]') != null);
+
+    if (isCombobox || comboboxAncestor || hasComboboxInput || isDropdownTrigger || isWorkdayMultiselect) {
       let input = null;
       let hasSearchInput = false;
 
@@ -216,89 +226,199 @@ async function handleFormInput(payload, sendResponse) {
         }
       }
 
-      // Poll for dropdown options to appear (max 2s)
       // Scope query: use aria-owns/aria-controls if available, else fall back to global
       const comboEl = input || element;
       const ownedId = comboEl.getAttribute('aria-owns') || comboEl.getAttribute('aria-controls');
+      const getContainer = () => (ownedId ? document.getElementById(ownedId) : null);
+      // Currently-RENDERED option elements (a virtualized listbox only renders what's in view).
+      const getRendered = () => {
+        const container = getContainer();
+        const list = container || (input || element).ownerDocument || document;
+        return Array.from(list.querySelectorAll('[role="option"]:not([aria-disabled="true"])'))
+          .filter(o => o.offsetParent !== null || o.offsetHeight > 0);
+      };
+
+      // Poll for the dropdown to open (max ~2.4s). Workday's "School or University" does NOT
+      // filter as you type — it only fetches results after Enter — so commit the typed query
+      // with Enter once nothing has rendered after the first poll.
       let options = [];
-      for (let attempt = 0; attempt < 10; attempt++) {
+      let committedSearch = false;
+      // Up to ~4s: Workday's School search hits the network after Enter and can be slow.
+      for (let attempt = 0; attempt < 20; attempt++) {
         await new Promise(r => setTimeout(r, 200));
-        const container = ownedId ? document.getElementById(ownedId) : null;
-        const scope = container || document;
-        options = Array.from(scope.querySelectorAll('[role="option"]:not([aria-disabled="true"])'));
-        options = options.filter(o => o.offsetParent !== null || o.offsetHeight > 0);
+        options = getRendered();
         if (options.length > 0) break;
+        if (isWorkdayMultiselect && hasSearchInput && input && !committedSearch && attempt >= 1) {
+          committedSearch = true;
+          for (const evt of ['keydown', 'keypress', 'keyup']) {
+            input.dispatchEvent(new KeyboardEvent(evt, {
+              key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true,
+            }));
+          }
+        }
       }
 
       if (options.length === 0) {
+        // Workday multi-add fields (Skills) can accept the typed value directly on Enter,
+        // adding a tag without ever opening a suggestion list. If our Enter cleared the search
+        // box, the value was committed — report success instead of a false "no options" failure
+        // (which would make the agent retry and double-add the skill).
+        if (isWorkdayMultiselect && committedSearch && hasSearchInput && input &&
+            (input.value || '').trim() === '') {
+          sendResponse({
+            success: true,
+            output: 'Added "' + value + '" (entered directly — no suggestion list shown)'
+          });
+          return;
+        }
         sendResponse({
           success: false,
-          error: 'No dropdown options appeared after typing "' + value + '". Try clicking the container first, then use form_input on the input inside it.'
+          error: 'No dropdown options appeared after typing "' + value + '". The field may need Enter to search, or click the field first then form_input on the input inside it.'
         });
         return;
       }
 
-      // Multi-pass matching algorithm
-      const searchStr = String(value).trim().toLowerCase();
-      let matched = null;
+      // Find the scrollable list container so we can read a long/virtualized option list by
+      // scrolling it in JS — instead of the agent burning turns on screenshot + scroll.
+      const findScroller = (start) => {
+        let n = start;
+        while (n && n !== document.body && n !== document.documentElement) {
+          const cs = getComputedStyle(n);
+          if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 4) return n;
+          n = n.parentElement;
+        }
+        return null;
+      };
+      const scroller = findScroller(options[0]) || (getContainer() && findScroller(getContainer()));
 
-      // Pass 1: Exact match
-      for (const opt of options) {
-        const text = (opt.textContent || '').trim().toLowerCase();
-        if (text === searchStr) { matched = opt; break; }
+      // Collect EVERY option's text by scrolling the list top→bottom in JS (dedup, keep order).
+      const allTexts = [];
+      const seen = new Set();
+      const collect = () => {
+        for (const o of getRendered()) {
+          const t = (o.textContent || '').trim();
+          const lc = t.toLowerCase();
+          if (t && !seen.has(lc)) { seen.add(lc); allTexts.push(t); }
+        }
+      };
+      if (scroller) {
+        scroller.scrollTop = 0;
+        await new Promise(r => setTimeout(r, 50));
       }
-      // Pass 2: Option contains search string (prefer shorter = more specific)
-      if (!matched) {
+      collect();
+      if (scroller) {
+        let prevTop = -1;
+        for (let i = 0; i < 80; i++) {
+          const before = scroller.scrollTop;
+          scroller.scrollTop = Math.min(before + Math.max(scroller.clientHeight - 20, 40), scroller.scrollHeight);
+          await new Promise(r => setTimeout(r, 60));
+          collect();
+          if (scroller.scrollTop === before || scroller.scrollTop === prevTop) break;
+          prevTop = before;
+        }
+        scroller.scrollTop = 0; // reset so the winner can be re-found from the top
+        await new Promise(r => setTimeout(r, 50));
+      }
+
+      // Multi-pass matching over the full collected text set → winnerText.
+      const searchStr = String(value).trim().toLowerCase();
+      let winnerText = null;
+      const lc = (s) => s.trim().toLowerCase();
+
+      // Pass 1: exact
+      winnerText = allTexts.find(t => lc(t) === searchStr) || null;
+      // Pass 2: option contains search (prefer shortest = most specific)
+      if (!winnerText) {
         let bestLen = Infinity;
-        for (const opt of options) {
-          const text = (opt.textContent || '').trim().toLowerCase();
-          if (text.includes(searchStr) && text.length < bestLen) {
-            matched = opt;
-            bestLen = text.length;
-          }
+        for (const t of allTexts) {
+          if (lc(t).includes(searchStr) && t.length < bestLen) { winnerText = t; bestLen = t.length; }
         }
       }
-      // Pass 3: Search string contains option text (min 3 chars to avoid nonsense matches)
-      if (!matched) {
+      // Pass 3: search contains option text (min 3 chars), prefer longest
+      if (!winnerText) {
         let bestLen = 0;
-        for (const opt of options) {
-          const text = (opt.textContent || '').trim().toLowerCase();
-          if (text.length >= 3 && searchStr.includes(text) && text.length > bestLen) {
-            matched = opt;
-            bestLen = text.length;
-          }
+        for (const t of allTexts) {
+          if (t.length >= 3 && searchStr.includes(lc(t)) && t.length > bestLen) { winnerText = t; bestLen = t.length; }
         }
       }
-      // Pass 4: All words match
-      if (!matched) {
+      // Pass 4: all search words appear in the option
+      if (!winnerText) {
         const words = searchStr.split(/[\s,]+/).filter(Boolean);
         if (words.length > 1) {
-          for (const opt of options) {
-            const text = (opt.textContent || '').trim().toLowerCase();
-            if (words.every(w => text.includes(w))) { matched = opt; break; }
-          }
+          winnerText = allTexts.find(t => words.every(w => lc(t).includes(w))) || null;
         }
       }
-      // Pass 5: Single result — just take it
-      if (!matched && options.length === 1) {
-        matched = options[0];
+      // Pass 5: single option — take it
+      if (!winnerText && allTexts.length === 1) winnerText = allTexts[0];
+      // Pass 6: significant-word overlap — closest related option when no exact one exists
+      // (e.g. "Data Science" → "Data Science and Analytics", "Computer Science" → "Computer
+      // Science and Engineering"). Stop/short words ignored; needs a clear single winner.
+      let fuzzyAmbiguous = false;
+      if (!winnerText) {
+        const STOP = new Set(['and', 'or', 'of', 'the', 'in', 'for', 'to', 'a', 'an']);
+        const sigWords = (s) => new Set(
+          s.split(/[\s,/&()-]+/).map(w => w.toLowerCase()).filter(w => w.length >= 4 && !STOP.has(w))
+        );
+        const searchWords = sigWords(searchStr);
+        if (searchWords.size > 0) {
+          let best = null, bestScore = 0, secondScore = 0;
+          for (const t of allTexts) {
+            const optWords = sigWords(t);
+            let score = 0;
+            for (const w of searchWords) if (optWords.has(w)) score++;
+            if (score > bestScore) { secondScore = bestScore; bestScore = score; best = t; }
+            else if (score > secondScore) { secondScore = score; }
+          }
+          if (best && bestScore >= 1 && bestScore > secondScore) winnerText = best;
+          else if (best && bestScore >= 1) fuzzyAmbiguous = true;
+        }
       }
 
-      if (!matched) {
-        const available = options.map(o => (o.textContent || '').trim()).filter(Boolean).slice(0, 15);
+      if (!winnerText) {
+        // Return the FULL option list read from the DOM (no screenshots) so the model can pick
+        // the closest match in one shot.
+        const hint = fuzzyAmbiguous
+          ? ' Several options are related — retry form_input with the EXACT text of the closest one.'
+          : ' Retry form_input with the EXACT text of the closest option, or a different keyword.';
         sendResponse({
           success: false,
-          error: 'No matching option for "' + value + '". Available: ' + available.join(', ')
+          error: 'No exact match for "' + value + '". Available (' + allTexts.length + '): ' +
+            allTexts.join(' | ') + '.' + hint
         });
         return;
       }
 
-      matched.scrollIntoView({ block: 'nearest' });
-      matched.click();
+      // Bring the winning option back into view (it may have scrolled out of a virtualized list)
+      // and click the live element.
+      const wantLc = lc(winnerText);
+      let clicked = false;
+      for (let i = 0; i < 80; i++) {
+        const live = getRendered().find(o => lc(o.textContent || '') === wantLc);
+        if (live) {
+          live.scrollIntoView({ block: 'nearest' });
+          await new Promise(r => setTimeout(r, 30));
+          live.click();
+          clicked = true;
+          break;
+        }
+        if (!scroller) break;
+        const before = scroller.scrollTop;
+        scroller.scrollTop = Math.min(before + Math.max(scroller.clientHeight - 20, 40), scroller.scrollHeight);
+        await new Promise(r => setTimeout(r, 50));
+        if (scroller.scrollTop === before) break;
+      }
+
+      if (!clicked) {
+        sendResponse({
+          success: false,
+          error: 'Found option "' + winnerText + '" but could not click it (it scrolled out of a virtualized list). Retry form_input with this exact text.'
+        });
+        return;
+      }
       await new Promise(r => setTimeout(r, 300));
       sendResponse({
         success: true,
-        output: 'Selected "' + (matched.textContent || '').trim() + '" from dropdown (searched: "' + value + '")'
+        output: 'Selected "' + winnerText + '" from dropdown (searched: "' + value + '")'
       });
       return;
     }

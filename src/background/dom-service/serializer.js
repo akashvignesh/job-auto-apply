@@ -37,8 +37,7 @@ const INTERACTIVE_ROLES = new Set([
 ]);
 
 // Attributes to include in serialized output (matching browser-use DEFAULT_INCLUDE_ATTRIBUTES)
-// Extended with data-automation-id, class, data-testid, href — these help the AI
-// write targeted JavaScript selectors when form_input/click doesn't work.
+// Phase 2: Tightened allowlist for token efficiency
 const INCLUDE_ATTRIBUTES = new Set([
   'title', 'type', 'checked', 'id', 'name', 'role', 'value',
   'placeholder', 'alt', 'aria-label', 'aria-expanded', 'data-state',
@@ -47,8 +46,30 @@ const INCLUDE_ATTRIBUTES = new Set([
   'multiple', 'inputmode', 'autocomplete', 'aria-autocomplete',
   'contenteditable', 'required',
   // Selector hints — help AI write targeted JS when standard tools fail
-  'class', 'href', 'for', 'data-automation-id', 'data-testid',
+  'href', 'for', 'data-automation-id', 'data-testid',
 ]);
+
+// Phase 2: Attribute value caps (per-attribute, default 20 chars)
+const VALUE_CAPS = {
+  'aria-label': 50,
+  'title': 40,
+  'href': 80,
+  'placeholder': 30,
+  'value': 25,
+  'id': 40,
+  'name': 40,
+  'role': 30,
+};
+
+// Phase 2: Utility class removal regex (Tailwind + Bootstrap)
+function cleanClass(raw) {
+  if (!raw) return '';
+  return raw
+    .replace(/\b(bg|text|border|p[xy]?|m[xy]?|w|h|flex|grid|gap|rounded|shadow|hover|focus|active|sm|md|lg|xl|2xl)-[\w-]+\b/g, '')
+    .replace(/\b(col|row|span|container|wrapper|block|inline|hidden|visible|d-\w+|align-\w+)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // AX properties to include
 const INCLUDE_AX_PROPS = new Set([
@@ -191,11 +212,26 @@ function buildAttributesString(node) {
   // Remove type if it matches tag name
   if (attrs.type && attrs.type.toLowerCase() === (node.nodeName || '').toLowerCase()) delete attrs.type;
 
+  // Phase 2: Duplicate attribute dedup
+  if ('aria-label' in attrs && 'name' in attrs && attrs['aria-label'] === attrs.name) {
+    delete attrs.name;
+  }
+  if ('title' in attrs && 'aria-label' in attrs && attrs.title === attrs['aria-label']) {
+    delete attrs.title;
+  }
+
   const parts = [];
   for (const [key, value] of Object.entries(attrs)) {
-    // Cap class at 60 chars (mostly noise from CSS modules), others at 100
-    const maxLen = key === 'class' ? 60 : 100;
-    const capped = value.length > maxLen ? value.slice(0, maxLen) + '...' : value;
+    // Phase 2: Utility class removal + value capping
+    let processedValue = value;
+    if (key === 'class') {
+      processedValue = cleanClass(value);
+      if (!processedValue) continue; // Skip empty classes after cleanup
+    }
+
+    // Phase 2: Cap values per attribute (default 20 chars)
+    const maxLen = VALUE_CAPS[key] || 20;
+    const capped = processedValue.length > maxLen ? processedValue.slice(0, maxLen) : processedValue;
     parts.push(`${key}=${capped}`);
   }
   return parts.join(' ');
@@ -262,6 +298,11 @@ function collectDialogs(node, out, viewportWidth, viewportHeight) {
 function isOptionPopup(node) {
   if (node.nodeType !== NODE_ELEMENT || !node.isVisible) return false;
   const aid = (node.attributes?.['data-automation-id'] || '').toLowerCase();
+  // CRITICAL: `selectedItemList` is the list of ALREADY-CHOSEN values (the pills shown after a
+  // selection), NOT an open dropdown. Each pill is a role=option, so without this guard it gets
+  // hoisted as "OPEN DROPDOWN" on every read_page — the agent then loops forever trying to "close"
+  // a dropdown that is actually just the committed value, burning turns/screenshots. Never hoist it.
+  if (aid === 'selecteditemlist') return false;
   // Workday renders the active prompt results into activeListContainer / promptOption nodes.
   if (aid === 'activelistcontainer' || aid.includes('promptoption')) return true;
   const role = node.attributes?.role || node.axNode?.role;
@@ -277,7 +318,10 @@ function hasOptionDescendant(node, depth = 0) {
   if (node.nodeType === NODE_ELEMENT) {
     const role = node.attributes?.role || node.axNode?.role;
     const tag = (node.nodeName || '').toLowerCase();
-    if (role === 'option' || tag === 'option') return true;
+    const aid = (node.attributes?.['data-automation-id'] || '').toLowerCase();
+    // A `selectedItem` is an already-chosen pill, not a selectable option — don't let it qualify
+    // a container as an open option popup (see isOptionPopup note).
+    if (aid !== 'selecteditem' && (role === 'option' || tag === 'option')) return true;
   }
   if (node.shadowRoots) for (const sr of node.shadowRoots) if (hasOptionDescendant(sr, depth + 1)) return true;
   if (node.children) for (const c of node.children) if (hasOptionDescendant(c, depth + 1)) return true;
@@ -300,13 +344,46 @@ function collectOptionPopups(node, out, viewportWidth, viewportHeight) {
 }
 
 export function serializeDomTree(root, options = {}) {
-  const { maxChars = 40000, viewportWidth, viewportHeight } = options;
+  const { maxChars = 40000, viewportWidth, viewportHeight, jsElementList = null, jsonLdObjects = [] } = options;
   const selectorMap = new Map();
   const lines = [];
   let charCount = 0;
   let truncated = false;
   const hoistedDialogIds = new Set(); // backendNodeIds already emitted in the hoist pass
   let inDialogPass = false;
+
+  // Phase 1: Prepend compact JS element list (Phase 1)
+  if (jsElementList) {
+    lines.push('=== INTERACTIVE ELEMENTS (JS-detected) ===');
+    lines.push(jsElementList);
+    lines.push('=== PAGE STRUCTURE (for context) ===');
+    charCount += jsElementList.length + 80;
+  }
+
+  // Phase 0b: Prepend JSON-LD structured data (Phase 3)
+  if (jsonLdObjects && jsonLdObjects.length > 0) {
+    const relevant = jsonLdObjects.filter(obj => {
+      const type = obj['@type'];
+      if (typeof type === 'string') {
+        return ['JobPosting', 'Product', 'Organization', 'Person', 'BreadcrumbList', 'Article'].includes(type);
+      }
+      if (Array.isArray(type)) {
+        return type.some(t => ['JobPosting', 'Product', 'Organization', 'Person', 'BreadcrumbList', 'Article'].includes(t));
+      }
+      return false;
+    });
+
+    if (relevant.length > 0) {
+      lines.push('=== STRUCTURED DATA (JSON-LD) ===');
+      for (const obj of relevant) {
+        const jsonStr = JSON.stringify(obj, null, 2);
+        lines.push(jsonStr);
+        charCount += jsonStr.length + 10;
+      }
+      lines.push('=== END STRUCTURED DATA ===');
+      charCount += 35;
+    }
+  }
 
   // eslint-disable-next-line sonarjs/cognitive-complexity
   function serialize(node, depth) {
