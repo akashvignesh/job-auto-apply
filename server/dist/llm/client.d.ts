@@ -12,6 +12,8 @@
  * DEEPSEEK_API_KEY (and optionally DEEPSEEK_MODEL, default `deepseek-v4-pro`).
  * Otherwise the project runs entirely on Claude.
  */
+import type { Capabilities } from "./capabilities.js";
+export declare const ANTHROPIC_CAPABILITIES: Capabilities;
 export interface ContentBlockText {
     type: "text";
     text: string;
@@ -68,12 +70,10 @@ export interface CallLLMParams {
     signal?: AbortSignal;
     onText?: (chunk: string) => void;
 }
-/**
- * Call the LLM using the Anthropic SDK.
- *
- * Routes to Vertex AI (Gemini) if VERTEX_SERVICE_ACCOUNT_JSON is set, then to
- * DeepSeek if DEEPSEEK_API_KEY is set. Otherwise uses Claude via SDK + Claude Code credentials.
- */
+/** Return the capabilities of the provider that callLLM() will dispatch to. */
+export declare function getActiveCapabilities(): Capabilities;
+/** Convenience: the name of the active provider. */
+export declare function getActiveProviderName(): string;
 export declare function callLLM(params: CallLLMParams): Promise<LLMResponse>;
 /**
  * Reset the cached credential source (e.g. after a manual credential update).

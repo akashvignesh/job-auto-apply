@@ -1,0 +1,19 @@
+{
+  "task": "Apply to the Senior Software Development Engineer position at Workday. The job URL is https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127 . Fill all required fields using the applicant profile, upload the resume from profile/resume.pdf, complete all pages of the application, and submit.",
+  "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+  "startTime": "2026-05-29T21:23:47.147Z",
+  "status": "error",
+  "usage": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "apiCalls": 0
+  },
+  "turns": [],
+  "endTime": "2026-05-29T21:23:47.679Z",
+  "analysis": {
+    "toolCounts": {},
+    "readPageCount": 0,
+    "failures": 0,
+    "repeatedActions": []
+  }
+}

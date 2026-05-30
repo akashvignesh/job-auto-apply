@@ -362,7 +362,6 @@ I'll continue from where we left off without asking additional questions.`;
     },
     ...recentContext,
   ];
-
   // Ensure valid message alternation (user/assistant must alternate)
   // Fix any consecutive same-role messages from recentContext
   for (let i = 1; i < compactedMessages.length; i++) {
@@ -398,10 +397,13 @@ I'll continue from where we left off without asking additional questions.`;
  * @returns {Promise<Array<Object>>} Truncated messages
  */
 async function emergencyCompact(messages, log) {
-  // Keep only the last few messages with images
-  const recentContext = preserveRecentContext(messages);
+  const recentContext = shrinkForEmergency(messages.slice(-2));
 
   const compacted = [
+    {
+      role: 'user',
+      content: 'Previous conversation was aggressively compacted because normal compaction did not reduce context enough. Continue from the live page state; call read_page only if current refs are missing or stale.',
+    },
     {
       role: 'assistant',
       content: 'Previous conversation was truncated due to length. I\'ll continue from the recent context.',
@@ -411,6 +413,34 @@ async function emergencyCompact(messages, log) {
 
   await log('COMPACT', `Emergency compact: ${messages.length} msgs → ${compacted.length} msgs`);
   return compacted;
+}
+
+function shrinkForEmergency(messages) {
+  return stripImagesForSummarization(messages).map(msg => {
+    if (!Array.isArray(msg.content)) {
+      return { ...msg, content: truncateEmergencyText(msg.content) };
+    }
+    return {
+      ...msg,
+      content: msg.content.map(block => {
+        if (block.type === 'tool_result') {
+          return {
+            ...block,
+            content: Array.isArray(block.content)
+              ? block.content.map(b => b.type === 'text' ? { ...b, text: truncateEmergencyText(b.text) } : b)
+              : truncateEmergencyText(block.content),
+          };
+        }
+        if (block.type === 'text') return { ...block, text: truncateEmergencyText(block.text) };
+        return block;
+      }),
+    };
+  });
+}
+
+function truncateEmergencyText(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+  return text.length > 6000 ? text.slice(0, 5980) + '\n[truncated]' : text;
 }
 
 /**
@@ -451,7 +481,13 @@ export async function compactIfNeeded(messages, callLLM, log, opts = {}) {
   await log('COMPACT', `Context at ${reason}, compacting...`);
 
   try {
-    return await compactConversation(messages, callLLM, log);
+    const compacted = await compactConversation(messages, callLLM, log);
+    const afterTokens = calculateContextTokens(compacted);
+    if (tokens >= COMPACTION_THRESHOLD && afterTokens >= tokens * 0.85) {
+      await log('COMPACT', `Compaction reduced too little (${tokens.toLocaleString()} to ${afterTokens.toLocaleString()} tokens). Using emergency compact to avoid repeated paid compactions.`);
+      return await emergencyCompact(messages, log);
+    }
+    return compacted;
   } catch (error) {
     // If compaction fails (e.g., API error during summarization), do emergency compact
     await log('COMPACT', `Compaction failed: ${error.message}. Using emergency compact.`);

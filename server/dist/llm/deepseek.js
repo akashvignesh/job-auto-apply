@@ -14,6 +14,23 @@
  * placeholder, so the agent runs on the read_page DOM / accessibility-tree text.
  */
 import { ProxyAgent } from "undici";
+/**
+ * Phase 7.6 — DeepSeek capability flags. The hosted DeepSeek API is text-only
+ * (no image_url in content arrays), so vision is `placeholder` — the adapter
+ * strips image blocks and inserts a "[screenshot omitted]" text marker.
+ */
+export const DEEPSEEK_CAPABILITIES = {
+    name: "deepseek",
+    toolCalling: true,
+    streamingToolCalls: true,
+    parallelToolCalls: true,
+    vision: "placeholder",
+    strictJsonSchema: true,
+    promptCacheType: "openai",
+    computerUse: false,
+    reportsUsage: true,
+    streamingText: true,
+};
 const PROXY_URL = process.env.https_proxy ||
     process.env.HTTPS_PROXY ||
     process.env.http_proxy ||

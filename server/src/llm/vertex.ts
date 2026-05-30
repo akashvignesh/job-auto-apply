@@ -28,6 +28,21 @@ import type {
   Message,
   Tool,
 } from "./client.js";
+import type { Capabilities } from "./capabilities.js";
+
+/** Phase 7.6 — Vertex AI (Gemini) capability flags. */
+export const VERTEX_CAPABILITIES: Capabilities = {
+  name: "vertex-gemini",
+  toolCalling: true,
+  streamingToolCalls: true,
+  parallelToolCalls: true,
+  vision: "native",
+  strictJsonSchema: true,
+  promptCacheType: "gemini",
+  computerUse: false,
+  reportsUsage: true,
+  streamingText: true,
+};
 
 // --- Config ---
 

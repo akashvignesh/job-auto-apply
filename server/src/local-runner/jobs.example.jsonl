@@ -1,0 +1,6 @@
+# Example batch job queue for `batch.js`. Lines starting with # are skipped.
+# Each non-empty line is one JSON object: { task, url?, context?, maxSteps?, model?, id? }
+# Run with: node dist/local-runner/batch.js --jobs server/src/local-runner/jobs.example.jsonl --concurrency 2
+{"id": "wd-sse-sde", "task": "Apply to this Workday job using my profile. Stop and escalate if anything is unclear.", "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127", "maxSteps": 80}
+{"id": "lever-acme", "task": "Apply to this Lever posting using my profile.", "url": "https://jobs.lever.co/acme-co/abc-123", "maxSteps": 60}
+{"id": "gh-foobar", "task": "Apply to this Greenhouse posting using my profile.", "url": "https://boards.greenhouse.io/foobar/jobs/4567890", "maxSteps": 60}

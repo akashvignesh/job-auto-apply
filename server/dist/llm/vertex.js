@@ -16,6 +16,19 @@ import { ProxyAgent } from "undici";
 // Support system HTTP proxy for outbound fetch (e.g. macOS system proxy)
 const PROXY_URL = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY;
 const proxyDispatcher = PROXY_URL ? new ProxyAgent(PROXY_URL) : undefined;
+/** Phase 7.6 — Vertex AI (Gemini) capability flags. */
+export const VERTEX_CAPABILITIES = {
+    name: "vertex-gemini",
+    toolCalling: true,
+    streamingToolCalls: true,
+    parallelToolCalls: true,
+    vision: "native",
+    strictJsonSchema: true,
+    promptCacheType: "gemini",
+    computerUse: false,
+    reportsUsage: true,
+    streamingText: true,
+};
 let vertexConfig = null;
 let cachedToken = null;
 let cachedTokenExpiry = 0;

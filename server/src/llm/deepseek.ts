@@ -24,6 +24,25 @@ import type {
   Message,
   Tool,
 } from "./client.js";
+import type { Capabilities } from "./capabilities.js";
+
+/**
+ * Phase 7.6 — DeepSeek capability flags. The hosted DeepSeek API is text-only
+ * (no image_url in content arrays), so vision is `placeholder` — the adapter
+ * strips image blocks and inserts a "[screenshot omitted]" text marker.
+ */
+export const DEEPSEEK_CAPABILITIES: Capabilities = {
+  name: "deepseek",
+  toolCalling: true,
+  streamingToolCalls: true,
+  parallelToolCalls: true,
+  vision: "placeholder",
+  strictJsonSchema: true,
+  promptCacheType: "openai",
+  computerUse: false,
+  reportsUsage: true,
+  streamingText: true,
+};
 
 const PROXY_URL =
   process.env.https_proxy ||

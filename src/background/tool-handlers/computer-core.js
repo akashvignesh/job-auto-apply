@@ -11,7 +11,12 @@ import { cdpHelper } from '../modules/cdp-helper.js';
 import { screenshotContextManager, scaleCoordinates, scaleCoordinatesLive } from '../modules/screenshot-context.js';
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
 import { isAntiBotEnabled } from '../modules/domain-skills.js';
-import { createElementResolver } from '../dom-service/element-resolver.js';
+import { createElementResolver, _peekRefMeta } from '../dom-service/element-resolver.js';
+import {
+  checkScreenshotBudget,
+  recordScreenshotCapture,
+  getLastFingerprintForTab,
+} from './read-page-core.js';
 
 // CDP-based element resolver (stable backendNodeId refs, no WeakRef GC issues)
 const elementResolver = createElementResolver(sendDebuggerCommand);
@@ -123,6 +128,58 @@ async function getElementFromRef(tabId, ref) {
   }
 }
 
+async function verifyOrRepairCheckableClick(tabId, ref) {
+  if (!ref) return null;
+  try {
+    const result = await elementResolver.callFunction(tabId, ref, `async (el) => {
+      const visible = (node) => !!node && (node.offsetParent !== null || node.getClientRects().length > 0);
+      const candidate = el.matches?.('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]')
+        ? el
+        : el.closest?.('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]')
+          || el.querySelector?.('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]');
+      if (!candidate) return null;
+
+      const input = candidate instanceof HTMLInputElement ? candidate : candidate.querySelector?.('input[type="radio"], input[type="checkbox"]');
+      const roleNode = candidate.getAttribute?.('role') ? candidate : candidate.closest?.('[role="radio"], [role="checkbox"]');
+      const role = (input?.type || roleNode?.getAttribute('role') || '').toLowerCase();
+      const checked = () => input ? input.checked : roleNode?.getAttribute('aria-checked') === 'true';
+      const label = input?.id && window.CSS && CSS.escape
+        ? document.querySelector('label[for="' + CSS.escape(input.id) + '"]')
+        : null;
+      const wrapper = candidate.closest?.('label, [role="radio"], [role="checkbox"], [data-automation-id*="adio"], [data-automation-id*="heckbox"]');
+      const targets = [candidate, input, label, wrapper, el].filter((node, idx, arr) => node && arr.indexOf(node) === idx);
+
+      for (const target of targets) {
+        if (checked()) break;
+        if (!visible(target) && target !== input) continue;
+        target.click?.();
+        target.dispatchEvent?.(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        target.dispatchEvent?.(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        target.dispatchEvent?.(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await new Promise(r => setTimeout(r, 120));
+      }
+      if (!checked()) {
+        const focusTarget = input || roleNode || candidate;
+        focusTarget.focus?.();
+        focusTarget.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }));
+        focusTarget.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true }));
+        await new Promise(r => setTimeout(r, 120));
+      }
+      return {
+        checkable: true,
+        checked: checked(),
+        role,
+        label: (label?.textContent || wrapper?.textContent || roleNode?.textContent || input?.ariaLabel || '').replace(/\\s+/g, ' ').trim(),
+      };
+    }`);
+    if (!result?.checkable) return null;
+    if (result.checked) return { output: `${result.role || 'checkable'} is now checked${result.label ? ` ("${result.label}")` : ''}` };
+    return { error: `Click did not check ${result.role || 'the control'}${result.label ? ` "${result.label}"` : ''}. The element may be covered, stale, or not the visible label/container.` };
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * Get current scroll position
  *
@@ -201,6 +258,59 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
   // Ensure tab is active before clicking - required for proper focus
   await chrome.tabs.update(tabId, { active: true });
 
+  // Phase 7.3 — refuse clicks on file inputs and Upload-like buttons. Clicking a
+  // raw <input type=file> pops the OS native file picker, which the agent cannot
+  // interact with — runs that get here stall until manual intervention. Workday's
+  // "Upload" / "Choose File" buttons usually delegate to a hidden file input the
+  // same way, so we block those too and direct the agent to file_upload.
+  if (input.ref) {
+    const meta = _peekRefMeta(tabId, input.ref);
+    if (meta) {
+      const isFileInput = (meta.tag === 'input' && (meta.type || '').toLowerCase() === 'file');
+      const labelLc = String(meta.label || '').toLowerCase();
+      const looksLikeUploadButton =
+        (meta.tag === 'button' || meta.role === 'button')
+        && /\b(upload|choose file|select file|attach|browse|add resume|add cover|add file|add document)\b/.test(labelLc);
+      if (isFileInput || looksLikeUploadButton) {
+        const what = isFileInput ? '<input type=file>' : `upload button "${meta.label || meta.role || 'button'}"`;
+        return {
+          error: `Click on ${what} (ref ${input.ref}) is blocked — clicking it would open the OS file picker, which the agent cannot drive. Use the file_upload tool with { ref: "${input.ref}", filePath: "<absolute or profile/ path>" } instead. file_upload will locate the hidden input[type=file] (even inside shadow DOM/iframes) and attach the file via CDP without ever showing the native picker.`,
+        };
+      }
+
+      // Phase 7.8 — final-submit click guard. A "Submit Application" / "Send
+      // Application" / "Confirm Submission" click is irreversible on most ATS:
+      // the application is filed, the candidate's profile is locked, and the
+      // employer is notified. Require the LLM to acknowledge intent with
+      // confirm_submit: true. The expected flow is: call read_page mode=form_summary
+      // to confirm everything required is filled, then call computer with both
+      // ref + confirm_submit:true.
+      const looksLikeFinalSubmit =
+        (meta.tag === 'button' || meta.role === 'button' || meta.tag === 'input' || meta.role === 'link')
+        && /\b(submit (application|my application|now|button)|send (application|my application)|confirm (and )?submit|final submit|submit & ?finish|finish (and )?submit|complete application|apply now)\b/.test(labelLc);
+      if (looksLikeFinalSubmit && input.confirm_submit !== true) {
+        return {
+          error: `BLOCKED (policy): "${meta.label}" (ref ${input.ref}) looks like a FINAL submit — this action is typically irreversible (application filed, profile locked). Before clicking:
+1. Call read_page mode="form_summary" and verify there are zero MISSING REQUIRED fields and zero ERRORS.
+2. Re-issue this exact call with confirm_submit: true to acknowledge intent.
+If this is not actually a final submit (e.g. it's "Save and Continue" or "Submit Section"), pass confirm_submit: true to override.`,
+        };
+      }
+
+      // Playwright actionability — refuse clicks on disabled elements. Without
+      // this the 4-step CDP/JS click chain "succeeds" silently (no exception)
+      // and the page does nothing; the agent then burns 3-5 LLM calls retrying
+      // before the loop guard kicks in. ATS "Save and Continue" buttons are
+      // routinely disabled until all required fields are filled — that's the
+      // exact state we want to fail fast on with a clear path forward.
+      if (meta.disabled) {
+        return {
+          error: `Click on "${meta.label || meta.role || meta.tag}" (ref ${input.ref}) is blocked — element is DISABLED. Most "Save and Continue" / "Submit" buttons are disabled until all required fields are filled. Call read_page mode="form_summary" to see what's missing, fill it, then re-read for fresh refs before clicking.`,
+        };
+      }
+    }
+  }
+
   let x, y;
 
   if (input.ref) {
@@ -268,12 +378,15 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
       const actionName =
         clickCount === 1 ? "Clicked" : clickCount === 2 ? "Double-clicked" : "Triple-clicked";
       const mode = antiBot ? " (human-like)" : "";
+      const checkable = input.ref ? await verifyOrRepairCheckableClick(tabId, input.ref) : null;
+      if (checkable?.error) throw new Error(checkable.error);
+      const checkableSuffix = checkable?.output ? `; ${checkable.output}` : "";
       return input.ref
-        ? { output: `${actionName} on element ${input.ref}${mode}` }
+        ? { output: `${actionName} on element ${input.ref}${mode}${checkableSuffix}` }
         : {
             output: `${actionName} at (${Math.round(input.coordinate[0])}, ${Math.round(
               input.coordinate[1]
-            )})${mode}`,
+            )})${mode}${checkableSuffix}`,
           };
     } catch (step1Err) {
       console.log('[Computer] Step 1 (CDP click) failed:', step1Err.message);
@@ -295,8 +408,10 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
       try {
         const clickResult = await elementResolver.callFunction(tabId, input.ref, '(el) => { el.click(); return "clicked"; }');
         if (clickResult === 'clicked') {
+          const checkable = await verifyOrRepairCheckableClick(tabId, input.ref);
+          if (checkable?.error) throw new Error(checkable.error);
           console.log('[Computer] Step 3 (JS click) succeeded');
-          return { output: `Clicked element ${input.ref} (JS fallback)` };
+          return { output: `Clicked element ${input.ref} (JS fallback)${checkable?.output ? `; ${checkable.output}` : ""}` };
         }
       } catch (_) { /* fallthrough */ }
     }
@@ -311,8 +426,10 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
             el.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true, clientX:cx, clientY:cy}))
           );
         }`);
+        const checkable = await verifyOrRepairCheckableClick(tabId, input.ref);
+        if (checkable?.error) throw new Error(checkable.error);
         console.log('[Computer] Step 4 (synthetic event) succeeded');
-        return { output: `Clicked element ${input.ref} (synthetic event fallback)` };
+        return { output: `Clicked element ${input.ref} (synthetic event fallback)${checkable?.output ? `; ${checkable.output}` : ""}` };
       } catch (_) { /* fallthrough */ }
     }
 
@@ -338,8 +455,25 @@ async function handleClick(tabId, input, clickCount = 1, originalUrl, antiBot = 
  */
 async function handleScreenshot(tabId) {
   try {
+    // Phase 7.2 — apply the shared screenshot budget. We don't have a fresh DOM hash
+    // here (cheap to read; expensive to compute), so the budget falls back to the
+    // time-based and per-fingerprint caps using the last fingerprint observed by
+    // read_page. If the agent has never read_page'd this tab, the fingerprint
+    // bucket is empty and only the consecutive-time cap applies — which is the
+    // important guard against tight screenshot loops anyway.
+    const lastFp = getLastFingerprintForTab(tabId);
+    const decision = checkScreenshotBudget(tabId, {
+      fingerprint: lastFp?.fingerprint || '',
+    });
+    if (!decision.allow) {
+      return {
+        output: `Screenshot skipped. ${decision.reason}${decision.priorId ? ` (prior id: ${decision.priorId})` : ''}`,
+      };
+    }
+
     const result = await cdpHelper.screenshot(tabId);
-    const imageId = generateScreenshotId();
+    const imageId = decision.id || generateScreenshotId();
+    recordScreenshotCapture(tabId, imageId, { fingerprint: lastFp?.fingerprint || '' });
     console.info(`[Computer Tool] Generated screenshot ID: ${imageId}`);
     console.info(`[Computer Tool] Screenshot dimensions: ${result.width}x${result.height}`);
 

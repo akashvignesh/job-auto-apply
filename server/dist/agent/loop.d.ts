@@ -10,32 +10,49 @@
  * 6. Repeats until end_turn or max steps
  * 7. Returns the final answer
  *
- * The extension is a dumb tool executor — it only runs tools and returns results.
- * All intelligence lives here.
+ * Pattern replay (Phase P):
+ *   When read_page returns a [fingerprint:XXX] tag and a VERIFIED pattern
+ *   exists for that fingerprint (successCount ≥ 2), the loop auto-executes
+ *   the fill steps via run_script WITHOUT an LLM call. Falls back to LLM if
+ *   any step fails. This cuts per-page API calls from ~10 to ~2.
+ *
+ * Page completion tracking:
+ *   completedFingerprints tracks which form pages have been fully filled this
+ *   session. On restart, callers pass previouslyCompleted to inject skip-hints.
  */
+import { PagePatternStore } from "../local-runner/page-pattern-store.js";
 export interface AgentLoopParams {
-    /** The task description */
     task: string;
-    /** Optional starting URL */
     url?: string;
-    /** Optional context (form data, preferences, etc.) */
     context?: string;
-    /** Function to execute a tool on the extension. Returns the tool result. */
     executeTool: (toolName: string, toolInput: Record<string, any>) => Promise<ToolResult>;
-    /** Optional callback for step updates */
     onStep?: (step: StepUpdate) => void;
-    /** Optional callback for streaming text */
     onText?: (chunk: string) => void;
-    /** Max agent loop iterations (default: 50) */
     maxSteps?: number;
-    /** Abort signal */
     signal?: AbortSignal;
+    /** Filesystem pattern store for auto-replay (optional — degrades gracefully if absent). */
+    patternStore?: PagePatternStore;
+    /** Flat profile object for valueKind resolution during pattern replay. */
+    profile?: Record<string, any>;
+    /** Fingerprints of pages already completed in a prior session (for restart recovery). */
+    previouslyCompleted?: Array<{
+        fingerprint: string;
+        url: string;
+        pageLabel: string;
+    }>;
+    /** Called when a form page is detected as complete. Caller persists this. */
+    onPageComplete?: (info: {
+        fingerprint: string;
+        url: string;
+        pageLabel: string;
+    }) => void;
+    /** LLM model override — defaults to DEFAULT_MODEL in client.ts (Haiku). Use "claude-sonnet-4-6" for harder pages. */
+    model?: string;
 }
 export interface ToolResult {
     success: boolean;
     output?: any;
     error?: string;
-    /** Base64 screenshot if the tool returned one */
     screenshot?: {
         data: string;
         mediaType: string;
@@ -43,10 +60,15 @@ export interface ToolResult {
 }
 export interface StepUpdate {
     step: number;
-    status: "thinking" | "tool_use" | "tool_result" | "complete" | "error";
+    status: "thinking" | "tool_use" | "tool_result" | "complete" | "error" | "pattern_replay";
     toolName?: string;
     toolInput?: Record<string, any>;
     text?: string;
+    patternInfo?: {
+        fingerprint: string;
+        steps: number;
+        matched: number;
+    };
 }
 export interface TurnLog {
     step: number;
@@ -57,6 +79,7 @@ export interface TurnLog {
         durationMs: number;
     }>;
     ai_response: string | null;
+    patternReplay?: boolean;
 }
 export interface AgentLoopResult {
     status: "complete" | "error" | "max_steps";
@@ -67,9 +90,12 @@ export interface AgentLoopResult {
         outputTokens: number;
         apiCalls: number;
     };
-    /** The model used for the last LLM call (for billing attribution) */
     model?: string;
-    /** Structured turn-by-turn log of the agent's actions */
     turns?: TurnLog[];
+    completedPages?: Array<{
+        fingerprint: string;
+        url: string;
+        pageLabel: string;
+    }>;
 }
 export declare function runAgentLoop(params: AgentLoopParams): Promise<AgentLoopResult>;

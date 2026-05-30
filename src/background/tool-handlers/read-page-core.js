@@ -15,6 +15,12 @@ import { extractDomState } from '../dom-service/index.js';
 import { fingerprintFromSequence } from '../dom-service/fingerprint.js';
 import { recordRefMeta, clearRefMetaForTab } from '../dom-service/element-resolver.js';
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
+import {
+  buildSummary,
+  buildActionsOnly,
+  buildErrorsOnly,
+  buildFormSummary,
+} from '../dom-service/summary-builder.js';
 
 /**
  * Outer cap (per-CDP-step timeouts inside extractDomState fire first).
@@ -46,6 +52,120 @@ const MAX_COLLAPSE = 2;
  * @type {Map<number, { url: string, fingerprint: string, fieldCount: number, at: number }>}
  */
 const lastFingerprintByTab = new Map();
+
+/**
+ * Phase 7.2 — screenshot budget state.
+ *
+ * Goal: cap the number of screenshots taken per page-fingerprint, and short-circuit
+ * a repeat screenshot when the DOM hash hasn't changed since the last one. Without
+ * a budget, an agent in a "what does the page look like now?" loop can rack up 50+
+ * screenshot tokens on one page; with this cap, the agent must do something that
+ * actually changes the page before the next screenshot is allowed.
+ *
+ * Shared with computer({action:'screenshot'}) via the exported helpers below.
+ *
+ * @type {Map<number, {
+ *   lastDomHash?: string,
+ *   lastFingerprint?: string,
+ *   lastScreenshotAt?: number,
+ *   perFingerprint: Map<string, number>,
+ *   recentDomHashes: Map<string, { id: string, at: number }>,
+ *   counter: number,
+ * }>}
+ */
+const screenshotBudgetByTab = new Map();
+
+const SCREENSHOT_BUDGET_PER_FINGERPRINT = 2;
+const SCREENSHOT_CONSECUTIVE_MIN_MS = 1500;
+
+function getBudget(tabId) {
+  let b = screenshotBudgetByTab.get(tabId);
+  if (!b) {
+    b = { perFingerprint: new Map(), recentDomHashes: new Map(), counter: 0 };
+    screenshotBudgetByTab.set(tabId, b);
+  }
+  return b;
+}
+
+/**
+ * Decide whether a screenshot should be captured for the current state. Returns
+ *   { allow: true, id }                       — capture; caller stores the result
+ *   { allow: false, reason, priorId? }         — block; caller emits the message
+ *
+ * Pure decision logic; does not capture or store the image itself.
+ *
+ * @param {number} tabId
+ * @param {{ domHash?: string, fingerprint?: string, now?: number }} state
+ */
+export function checkScreenshotBudget(tabId, state) {
+  const now = state.now || Date.now();
+  const b = getBudget(tabId);
+  const domHash = state.domHash || '';
+  const fingerprint = state.fingerprint || '';
+
+  // 1. Identical DOM hash already captured? Reuse the prior id.
+  if (domHash && b.recentDomHashes.has(domHash)) {
+    const prior = b.recentDomHashes.get(domHash);
+    return {
+      allow: false,
+      reason: `Page state hash unchanged since ${prior.id}. Reuse the prior screenshot — take a new one only after an action changes the DOM.`,
+      priorId: prior.id,
+    };
+  }
+
+  // 2. Just took a screenshot? Refuse a consecutive one (likely a loop).
+  if (b.lastScreenshotAt && now - b.lastScreenshotAt < SCREENSHOT_CONSECUTIVE_MIN_MS) {
+    return {
+      allow: false,
+      reason: `Consecutive screenshot blocked. Wait for an action to change the page (or call read_page mode=summary / mode=errors for cheaper signal).`,
+      priorId: b.lastDomHash ? (b.recentDomHashes.get(b.lastDomHash)?.id) : undefined,
+    };
+  }
+
+  // 3. Per-fingerprint cap.
+  if (fingerprint) {
+    const used = b.perFingerprint.get(fingerprint) || 0;
+    if (used >= SCREENSHOT_BUDGET_PER_FINGERPRINT) {
+      return {
+        allow: false,
+        reason: `Screenshot budget exhausted for this page (${used}/${SCREENSHOT_BUDGET_PER_FINGERPRINT}). Use read_page mode=summary, mode=errors, or verify_action — or advance the page before screenshotting again.`,
+      };
+    }
+  }
+
+  b.counter += 1;
+  return { allow: true, id: `screenshot_${tabId}_${b.counter}` };
+}
+
+/**
+ * Record a captured screenshot in the budget state. Called by callers after they
+ * successfully obtain image bytes.
+ */
+export function recordScreenshotCapture(tabId, id, state) {
+  const now = state?.now || Date.now();
+  const b = getBudget(tabId);
+  const domHash = state?.domHash || '';
+  const fingerprint = state?.fingerprint || '';
+  if (domHash) {
+    b.recentDomHashes.set(domHash, { id, at: now });
+    // Keep map bounded.
+    if (b.recentDomHashes.size > 6) {
+      const firstKey = b.recentDomHashes.keys().next().value;
+      if (firstKey !== undefined) b.recentDomHashes.delete(firstKey);
+    }
+    b.lastDomHash = domHash;
+  }
+  if (fingerprint) {
+    b.perFingerprint.set(fingerprint, (b.perFingerprint.get(fingerprint) || 0) + 1);
+    b.lastFingerprint = fingerprint;
+  }
+  b.lastScreenshotAt = now;
+}
+
+/** Clear screenshot budget for a tab (call on tab close / navigate to a new domain). */
+export function clearScreenshotBudgetForTab(tabId) {
+  screenshotBudgetByTab.delete(tabId);
+}
 
 /** Service-worker reads this at task-success to persist the learned plan. */
 export function getLastFingerprintForTab(tabId) {
@@ -167,6 +287,71 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+function refreshReadCaches(tabId, tabUrl, result, stats) {
+  try {
+    const map = result.selectorMap;
+    if (map && typeof map.forEach === 'function') {
+      clearRefMetaForTab(tabId);
+      map.forEach((node, ref) => {
+        const attrs = node?.attributes || {};
+        const axProps = node?.axNode?.properties || {};
+        const role = node?.axNode?.role || attrs.role || '';
+        const label = node?.axNode?.name
+          || attrs['aria-label']
+          || attrs.placeholder
+          || attrs.title
+          || '';
+        const tag = (node?.nodeName || '').toLowerCase();
+
+        // Playwright-style actionability state captured at read time so
+        // computer/form_input can pre-check without a round-trip. Both HTML
+        // attribute and AX property channels are consulted because React
+        // controlled components often only mark disabled via aria.
+        const disabled =
+          axProps.disabled === true || axProps.disabled === 'true'
+          || attrs.disabled === '' || attrs.disabled === 'true' || attrs.disabled === 'disabled'
+          || attrs['aria-disabled'] === 'true';
+        const readonly =
+          axProps.readonly === true || axProps.readonly === 'true'
+          || attrs.readonly === '' || attrs.readonly === 'true' || attrs.readonly === 'readonly'
+          || attrs['aria-readonly'] === 'true';
+
+        if (role || label || tag) {
+          recordRefMeta(tabId, ref, {
+            role,
+            label,
+            tag,
+            type: attrs.type || '',
+            id: attrs.id || '',
+            name: attrs.name || '',
+            placeholder: attrs.placeholder || '',
+            automationId: attrs['data-automation-id'] || '',
+            disabled,
+            readonly,
+          });
+        }
+      });
+    }
+  } catch {
+    // Cache population is best-effort. A failure here just means the
+    // next stale-ref lookup falls through to the "Could not resolve" path.
+  }
+
+  if (stats && stats.fieldSeq) {
+    fingerprintFromSequence(stats.fieldSeq).then((fp) => {
+      if (fp.fingerprint) {
+        lastFingerprintByTab.set(tabId, {
+          url: tabUrl || '',
+          fingerprint: fp.fingerprint,
+          fieldCount: fp.fieldCount,
+          sample: fp.sample,
+          at: Date.now(),
+        });
+      }
+    }).catch(() => { /* ignore */ });
+  }
+}
+
 /**
  * @template T
  * @param {Promise<T>} promise
@@ -186,17 +371,36 @@ async function withTimeout(promise, ms, label) {
   }
 }
 
+const VALID_MODES = new Set(['summary', 'actions', 'errors', 'form_summary', 'full', 'region']);
+
 /**
- * Handle read_page tool - get serialized DOM representation via CDP
+ * Handle read_page tool - get a compact, task-relevant view of the page.
+ *
+ * Modes (Phase 7.1):
+ *   summary (default) — page meta + fields + buttons + errors + blocker + next-safe-action
+ *   actions           — interactive elements only (refs, kinds, labels, state)
+ *   errors            — validation errors and invalid fields
+ *   form_summary      — required-field fill state + submit button state
+ *   full              — full DOM tree (previous default; only when summary is insufficient)
+ *   region            — subtree of a given ref (currently falls back to full + filtered output)
+ *
+ * The DOM extraction is identical across modes; only the output formatting changes.
+ * This lets the cache/diff/fingerprint state stay coherent regardless of mode.
  *
  * @param {Object} input - Tool input
  * @param {number} input.tabId - Tab ID to read from
- * @param {number} [input.max_chars] - Max output chars (default: 50000)
- * @param {boolean} [input.screenshot] - Include screenshot (default: false, opt-in for token savings)
- * @returns {Promise<{output?: string, error?: string}>}
+ * @param {string} [input.mode] - 'summary' (default) | 'actions' | 'errors' | 'form_summary' | 'full' | 'region'
+ * @param {string} [input.ref] - Required when mode='region'
+ * @param {number} [input.max_chars] - Max output chars (only meaningful for mode='full'|'region')
+ * @param {boolean} [input.screenshot] - Include screenshot (subject to per-fingerprint budget)
+ * @returns {Promise<{output?: string, error?: string, base64Image?: string, imageFormat?: string}>}
  */
 export async function handleReadPage(input) {
   const { tabId, max_chars, screenshot } = input || {};
+  let mode = (input?.mode || 'summary').toLowerCase();
+  if (!VALID_MODES.has(mode)) {
+    return { error: `Unknown read_page mode "${mode}". Valid: ${[...VALID_MODES].join(', ')}.` };
+  }
 
   if (!tabId) {
     throw new Error('No active tab found');
@@ -207,9 +411,8 @@ export async function handleReadPage(input) {
     throw new Error('Active tab has no ID');
   }
 
-  // Clamp max_chars: the agent occasionally requests huge values (e.g. 80000) which inflate
-  // cost without helping. Phase 1 (JS element list) provides compact targeting signal,
-  // so CDP tree is for context only. Phase 2: reduce ceiling to 20K.
+  // Clamp max_chars only matters for full/region modes. Summary/actions/errors emit
+  // bounded output by construction (≤40 fields + ≤25 buttons + ≤15 errors).
   const MAX_CHARS_CEILING = 20000;
   const effectiveMaxChars = Math.min(max_chars ?? 20000, MAX_CHARS_CEILING);
 
@@ -240,41 +443,119 @@ export async function handleReadPage(input) {
 
     const tabNow = await chrome.tabs.get(tabId);
     const stats = result.stats;
+
+    // Compute the page hash early — needed for both collapse and the screenshot budget.
+    const hash = hashRead(`${tabNow.url}\n${result.text}`);
+
+    // Phase A — compute the form fingerprint up front; needed for both the
+    // screenshot budget and the meta line emitted to the LLM.
+    let liveFingerprint = null;
+    if (stats && stats.fieldSeq) {
+      try {
+        const fp = await fingerprintFromSequence(stats.fieldSeq);
+        if (fp.fingerprint) {
+          liveFingerprint = fp.fingerprint;
+          lastFingerprintByTab.set(tabId, {
+            url: tabNow.url || '',
+            fingerprint: fp.fingerprint,
+            fieldCount: fp.fieldCount,
+            at: Date.now(),
+          });
+        }
+      } catch { /* ignore — fingerprint is best-effort */ }
+    }
+
+    // Phase 7.2 — screenshot budget. The screenshot bytes are already in result.screenshot
+    // (extractDomState captured them). If the budget says no, we drop the bytes from the
+    // response and emit a reuse message instead, so the LLM doesn't pay for the image.
+    let screenshotBlocked = null;
+    if (screenshot === true && result.screenshot) {
+      const decision = checkScreenshotBudget(tabId, { domHash: hash, fingerprint: liveFingerprint });
+      if (decision.allow) {
+        recordScreenshotCapture(tabId, decision.id, { domHash: hash, fingerprint: liveFingerprint });
+      } else {
+        screenshotBlocked = decision;
+        result.screenshot = null;
+      }
+    }
+
+    // Build the mode-specific output. Modes that don't need the full DOM tree
+    // skip the collapse + diff paths below since they're already compact.
+    const compactModes = new Set(['summary', 'actions', 'errors', 'form_summary']);
+    if (compactModes.has(mode)) {
+      // Update caches before returning so future diffs/self-heal work even when
+      // the LLM never sees the full DOM tree.
+      lastReadByTab.set(tabId, {
+        hash,
+        collapseCount: 0,
+        url: tabNow.url || '',
+        refs: buildRefSummaryFromMap(result.selectorMap),
+      });
+      refreshReadCaches(tabId, tabNow.url || '', result, stats);
+
+      let body;
+      const ctx = {
+        selectorMap: result.selectorMap,
+        domText: result.text,
+        stats,
+        url: tabNow.url || '',
+        title: tabNow.title || '',
+        fingerprint: liveFingerprint,
+      };
+      if (mode === 'summary')      body = buildSummary(ctx);
+      else if (mode === 'actions') body = buildActionsOnly(ctx);
+      else if (mode === 'errors')  body = buildErrorsOnly(ctx);
+      else                          body = buildFormSummary(ctx);
+
+      const tail = [];
+      if (liveFingerprint) tail.push(`[fingerprint:${liveFingerprint}]`);
+      tail.push(`mode=${mode}`);
+      tail.push(`max_chars not applied to mode=${mode}; call mode=full for the raw DOM tree.`);
+      if (screenshotBlocked) {
+        tail.push(`SCREENSHOT BLOCKED: ${screenshotBlocked.reason}${screenshotBlocked.priorId ? ` (prior id: ${screenshotBlocked.priorId})` : ''}`);
+      }
+      const response = { output: `${body}\n\n${tail.join(' | ')}` };
+      if (result.screenshot) {
+        response.base64Image = result.screenshot;
+        response.imageFormat = 'jpeg';
+      }
+      return response;
+    }
+
+    // Full (or region) mode: emit the raw serialized tree with meta + diff/collapse logic.
     const meta = [
       `URL: ${tabNow.url}`,
       `Viewport: ${stats.viewportWidth}x${stats.viewportHeight}`,
       `Interactive elements: ${stats.interactiveElements}`,
+      'mode=full',
       '(CDP read uses bounded DOM depth + per-step timeouts; empty snapshot falls back to AX for refs — re-call read_page if content looks incomplete)',
     ];
     if (stats.truncated) {
-      meta.push('(output truncated — use max_chars to increase limit)');
+      meta.push('(output truncated — use max_chars to increase limit, or switch to mode=summary)');
     }
+    if (screenshotBlocked) {
+      meta.push(`SCREENSHOT BLOCKED: ${screenshotBlocked.reason}${screenshotBlocked.priorId ? ` (prior id: ${screenshotBlocked.priorId})` : ''}`);
+    }
+    if (liveFingerprint) meta.push(`[fingerprint:${liveFingerprint}]`);
 
     // Collapse redundant identical reads to save tokens. Skipped when a screenshot was
-    // requested (the agent explicitly wants fresh visual state).
-    const hash = hashRead(`${tabNow.url}\n${result.text}`);
+    // explicitly captured (the agent wanted fresh visual state).
     const prev = lastReadByTab.get(tabId);
-    if (screenshot !== true && prev && prev.hash === hash && prev.collapseCount < MAX_COLLAPSE) {
+    const isScreenshotEmitted = screenshot === true && !!result.screenshot;
+    if (!isScreenshotEmitted && prev && prev.hash === hash && prev.collapseCount < MAX_COLLAPSE) {
       lastReadByTab.set(tabId, { ...prev, hash, collapseCount: prev.collapseCount + 1 });
+      refreshReadCaches(tabId, tabNow.url || '', result, stats);
       return {
-        output: `Page DOM is UNCHANGED since your last read_page on this tab (URL: ${tabNow.url} | ${stats.interactiveElements} interactive elements). The element refs from your previous read_page are still valid — act on them directly; do NOT re-read for the same state. If you expected a change: wait ~2s then retry, scroll, take a screenshot (read_page with screenshot=true) to check for an overlay/modal, or take a different action.`,
+        output: `Page DOM is UNCHANGED since your last read_page on this tab (URL: ${tabNow.url} | ${stats.interactiveElements} interactive elements). The element refs from your previous read_page are still valid — act on them directly; do NOT re-read for the same state. If you expected a change: wait ~2s then retry, scroll, switch to mode=summary or mode=errors for a different signal, or take a different action.`,
       };
     }
 
-    // Phase C — snapshot-diff path. Build a compact ref→{role,label} map of the
-    // current read so the NEXT read can compute a diff. When the page is mostly
-    // the same (same URL, ≥80% of refs unchanged), we emit only added/removed/
-    // changed refs instead of the full 20K-char DOM dump. Skipped for
-    // screenshot reads (agent explicitly asked for fresh state) and for the
-    // first read on a tab (no baseline yet).
     const currentRefs = buildRefSummaryFromMap(result.selectorMap);
-    const newCacheEntry = { hash, collapseCount: 0, url: tabNow.url || '', refs: currentRefs };
-    lastReadByTab.set(tabId, newCacheEntry);
+    lastReadByTab.set(tabId, { hash, collapseCount: 0, url: tabNow.url || '', refs: currentRefs });
+    refreshReadCaches(tabId, tabNow.url || '', result, stats);
 
-    if (screenshot !== true && prev && prev.refs && prev.url === (tabNow.url || '') && prev.refs.size > 0) {
+    if (!isScreenshotEmitted && prev && prev.refs && prev.url === (tabNow.url || '') && prev.refs.size > 0) {
       const diff = diffRefMaps(prev.refs, currentRefs);
-      // Only emit a diff when the bulk of the page is unchanged — otherwise
-      // a full re-read is cheaper than a thousand-line CHANGED list.
       const total = Math.max(prev.refs.size, currentRefs.size, 1);
       const changeRatio = (diff.added.length + diff.removed.length + diff.changed.length) / total;
       if (changeRatio <= 0.2 && (diff.added.length + diff.removed.length + diff.changed.length) <= 40) {
@@ -285,56 +566,8 @@ export async function handleReadPage(input) {
           prevRefCount: prev.refs.size,
           curRefCount: currentRefs.size,
         });
-        // Still update the fingerprint + ref-meta cache below — they read from
-        // the SAME selectorMap and must stay in sync with what the agent sees.
         return { output: diffOutput };
       }
-    }
-
-    // Phase C — repopulate the ref-meta cache so element-resolver self-heal
-    // can recover from a stale ref by looking up the same logical element
-    // by (role, label). The selectorMap is keyed by backendNodeId and each
-    // value is the enhanced tree node — we only need the AX/label info,
-    // not the whole node. We replace the cache entirely so removed refs
-    // don't linger (a stale entry in this cache would mislead self-heal).
-    try {
-      const map = result.selectorMap;
-      if (map && typeof map.forEach === 'function') {
-        clearRefMetaForTab(tabId);
-        map.forEach((node, ref) => {
-          const role = node?.axNode?.role || node?.attributes?.role || '';
-          const label = node?.axNode?.name
-            || node?.attributes?.['aria-label']
-            || node?.attributes?.placeholder
-            || node?.attributes?.title
-            || '';
-          const tag = (node?.nodeName || '').toLowerCase();
-          if (role || label || tag) {
-            recordRefMeta(tabId, ref, { role, label, tag });
-          }
-        });
-      }
-    } catch {
-      // Cache population is best-effort. A failure here just means the
-      // next stale-ref lookup falls through to the "Could not resolve"
-      // error path — same behavior as before Phase C.
-    }
-
-    // Phase A — stash the form fingerprint so the service-worker can persist
-    // the learned plan keyed by (domain, fingerprint) when the task succeeds.
-    // The synchronous walk happened inside processCdpData; only the hash is
-    // async here. Best-effort: a hashing failure must never break read_page.
-    if (stats && stats.fieldSeq) {
-      fingerprintFromSequence(stats.fieldSeq).then((fp) => {
-        if (fp.fingerprint) {
-          lastFingerprintByTab.set(tabId, {
-            url: tabNow.url || '',
-            fingerprint: fp.fingerprint,
-            fieldCount: fp.fieldCount,
-            at: Date.now(),
-          });
-        }
-      }).catch(() => { /* ignore */ });
     }
 
     const response = {

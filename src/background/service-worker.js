@@ -10,8 +10,9 @@
 
 import { getDomainSkills } from './modules/domain-skills.js';
 import { recordStep, resetRecording, getRecording, getChunks, stepFromToolCall } from './modules/plan-recorder.js';
-import { upsertPlanForPage, getPlanByFingerprint, getMostRecentPlanForDomain, renderPlanForPrompt } from './modules/learned-plans.js';
+import { upsertPlanForPage, recordPlanFailure, getPlanByFingerprint, getRelevantPlansForDomain, renderPlanForPrompt } from './modules/learned-plans.js';
 import { getLastFingerprintForTab, clearLastFingerprintForTab } from './tool-handlers/read-page-core.js';
+import { getRefMetaForTab } from './dom-service/element-resolver.js';
 import {
   loadConfig, getConfig, setConfig,
   createAbortController, abortRequest,
@@ -19,6 +20,7 @@ import {
 } from './modules/api.js';
 import { getMemoryStats } from './modules/memory-manager.js';
 import { compactIfNeeded, calculateContextTokens } from './modules/conversation-compaction.js';
+import { checkpointKey, getCheckpoint, saveCheckpoint, pruneExpiredCheckpoints, markPageComplete, getCompletedPages } from './modules/checkpoints.js';
 import { startOAuthLogin, importCLICredentials, logout, getAuthStatus } from './modules/oauth-manager.js';
 import { hasHandler, executeToolHandler } from './tool-handlers/index.js';
 import { log, clearLog, saveTaskLogs, initLogging, registerTaskLogging, unregisterTaskLogging } from './managers/logging-manager.js';
@@ -664,6 +666,7 @@ async function buildTabContext(initialTabId, mcpSession, taskLog) {
         const liveFp = fpEntry && fpEntry.fingerprint ? fpEntry.fingerprint : '';
 
         let plan = null;
+        let plans = [];
         let lookupSource = '';
         let cacheHit = false;
 
@@ -678,7 +681,10 @@ async function buildTabContext(initialTabId, mcpSession, taskLog) {
             plan = await getPlanByFingerprint(liveFp);
             _learnedPlanCacheByTask.set(_cacheKey(initialTabId, fpKey), plan || null);
           }
-          if (plan) lookupSource = 'fingerprint';
+          if (plan) {
+            plans = [plan];
+            lookupSource = 'fingerprint';
+          }
         }
 
         // (2) Domain-soft fallback path — only when no exact match AND the
@@ -687,10 +693,16 @@ async function buildTabContext(initialTabId, mcpSession, taskLog) {
         if (!plan && isPlanRelevantForPath(u.pathname || '')) {
           const cachedHost = getCachedLearnedPlan(initialTabId, host);
           if (cachedHost !== undefined) {
-            plan = cachedHost;
-            cacheHit = cacheHit && true;
+            plans = Array.isArray(cachedHost) ? cachedHost : (cachedHost ? [cachedHost] : []);
+            plan = plans[0] || null;
+            cacheHit = true;
           } else {
-            plan = await loadAndCacheLearnedPlan(initialTabId, host);
+            plans = await loadAndCacheLearnedPlan(initialTabId, host, {
+              pathname: u.pathname || '',
+              taskText: extractFirstUserTaskText(mcpSession?.messages || []),
+              limit: 5,
+            });
+            plan = plans[0] || null;
           }
           if (plan) lookupSource = 'domain-soft';
         }
@@ -702,7 +714,10 @@ async function buildTabContext(initialTabId, mcpSession, taskLog) {
             taskKind: plan.taskKind || '',
             successCount: plan.successCount || 1,
             source: lookupSource,
-            rendered: renderPlanForPrompt(plan),
+            planCount: plans.length || 1,
+            rendered: (plans.length > 1 && lookupSource === 'domain-soft')
+              ? plans.map((p, idx) => `Candidate ${idx + 1}:\n${renderPlanForPrompt(p)}`).join('\n\n')
+              : renderPlanForPrompt(plan),
           };
           if (taskLog && !cacheHit) {
             await taskLog('LEARNED_PLAN', `Loaded plan (${lookupSource}) for ${host} (${(plan.plan || []).length} steps, successes=${plan.successCount})`);
@@ -859,10 +874,10 @@ function getCachedLearnedPlan(tabId, host) {
     : undefined;
 }
 
-async function loadAndCacheLearnedPlan(tabId, host) {
-  const plan = await getMostRecentPlanForDomain(host);
-  _learnedPlanCacheByTask.set(_cacheKey(tabId, host), plan || null);
-  return plan || null;
+async function loadAndCacheLearnedPlan(tabId, host, opts = {}) {
+  const plans = await getRelevantPlansForDomain(host, opts);
+  _learnedPlanCacheByTask.set(_cacheKey(tabId, host), plans);
+  return plans;
 }
 
 function resetLearnedPlanCache(tabId) {
@@ -967,6 +982,25 @@ function buildLoopKey(toolName, input, url) {
   return null;
 }
 
+function formFillCacheKeys(tabId, input) {
+  const ref = input?.ref != null ? String(input.ref) : '';
+  const keys = ref ? [`ref:${ref}`] : [];
+  const meta = ref ? getRefMetaForTab(tabId).get(ref) : null;
+  if (meta) {
+    const stable = [
+      meta.automationId,
+      meta.id,
+      meta.name,
+      meta.placeholder,
+      meta.label,
+      meta.role,
+      meta.tag,
+    ].map(v => String(v || '').trim().toLowerCase()).filter(Boolean).join('|');
+    if (stable) keys.push(`field:${stable}`);
+  }
+  return keys;
+}
+
 /**
  * Detect action loops by counting repeated (tool+input+url) keys in recent assistant turns.
  * Returns { key, count } if any action repeated 4+ times in the last 8 assistant messages, else null.
@@ -989,9 +1023,15 @@ function detectActionLoop(messages, currentTabUrl) {
   return null;
 }
 
+function isLLMTimeoutError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('timed out') || message.includes('timeout');
+}
+
 // eslint-disable-next-line complexity, sonarjs/cognitive-complexity
 async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBeforeActing = true, existingHistory = [], initialTabGroupId = null, mcpSession = null) {
   const sessionId = mcpSession?.sessionId || null;
+  const activeCheckpointKey = checkpointKey(sessionId, initialTabId);
   let _logTurn = 0;
   let _logUrl = null;
   const taskLog = (type, message, data = null) => log(type, message, data, { sessionId, turn: _logTurn, url: _logUrl });
@@ -1042,6 +1082,7 @@ async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBefore
   const initialCtx = await buildTabContext(initialTabId, mcpSession, taskLog);
   const { tabInfo } = initialCtx;
   let { currentTabUrl } = initialCtx;
+  const priorCheckpoint = !isFollowUp ? await getCheckpoint(activeCheckpointKey) : null;
 
   // Build new user message with optional images and system-reminders
   const userContent = [];
@@ -1064,6 +1105,26 @@ async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBefore
     text: `<system-reminder>${JSON.stringify(tabInfo)}</system-reminder>`,
   });
 
+  if (priorCheckpoint) {
+    const completedPagesData = Array.isArray(priorCheckpoint.completedPages) ? priorCheckpoint.completedPages : [];
+    const skipBlock = completedPagesData.length > 0
+      ? '\n\nALREADY COMPLETED FORM PAGES (DO NOT re-fill these — skip them by clicking Save & Continue):\n' +
+        completedPagesData.map(p => `  ✓ fingerprint=${p.fingerprint} url=${p.url || '?'} label="${p.pageLabel || '?'}"`).join('\n')
+      : '';
+    userContent.push({
+      type: 'text',
+      text: `<checkpoint>
+Recovered a recent checkpoint for this session. Use it as a resume hint, not as proof that the current page is identical.
+- Last checkpoint URL: ${priorCheckpoint.url || '(unknown)'}
+- Last checkpoint turn: ${priorCheckpoint.turn || 0}
+- Last form fingerprint: ${priorCheckpoint.fingerprint || '(none)'}
+- Original task: ${priorCheckpoint.task || task}${skipBlock}
+
+First inspect the live tab. If it is still on or near the checkpoint URL, continue from there instead of restarting the application from the beginning.
+</checkpoint>`,
+    });
+  }
+
   // Phase A — inject the learned plan as a separate, prominent block AFTER
   // the tab context. Kept out of the JSON blob so the LLM treats it as
   // first-class guidance rather than tab metadata. The "guidance, not script"
@@ -1079,8 +1140,10 @@ async function runAgentLoop(initialTabId, task, onUpdate, images = [], askBefore
     userContent.push({
       type: 'text',
       text: `<learned-plan>
-A previous successful run produced ${matchType} for this page (${lp.successCount} success(es), kind=${lp.taskKind || 'generic'}). Treat this as a trajectory HINT, not a script:
-- These are the steps that previously worked on this SPECIFIC page. Batch them in ONE tool turn instead of one-tool-per-call.
+A previous run produced ${matchType} for this page (${lp.successCount} verified success(es), kind=${lp.taskKind || 'generic'}, candidates=${lp.planCount || 1}). Treat this as memory, not a script:
+- WORKED STEPS from verified plans are strong hints. PARTIAL STEPS from unfinished runs are weak hints: verify the live page first, then batch only matching actions in ONE tool turn.
+- AVOID REPEATING failed actions listed below. If the same label/ref/action failed before, choose a different path instead of retrying it.
+- If multiple candidates are shown, prefer Candidate 1 unless the live labels clearly match another candidate better.
 - If a step's label/role does not appear on the live page, SKIP that step and fall back to normal read_page + form_input — do NOT invent refs.
 - A step may show "(+N variants)" — multiple selector hints were recorded across tenants; the agent layer picks the live one for you.
 - Values marked <profile.*> come from the user profile; <today.date> from today's date; literal values are shown as-is.
@@ -1124,9 +1187,12 @@ ${mcpSession.context}</system-reminder>`,
   // maxSteps: 0 means unlimited, otherwise use configured value or default to 100
   const configMaxSteps = getConfig().maxSteps;
   const maxSteps = configMaxSteps === 0 ? Infinity : (configMaxSteps || 100);
+  let lastCheckpointPageKey = '';
+  let pagesSinceCheckpoint = 0;
 
   // Track injected MCP messages (for mid-execution message injection)
   let mcpMessagesInjected = mcpSession ? mcpSession.messages.length : 0;
+  pruneExpiredCheckpoints().catch(() => {});
 
   while (steps < maxSteps) {
     // Check if this run was cancelled
@@ -1155,6 +1221,57 @@ ${mcpSession.context}</system-reminder>`,
       sameUrlStreak = 1;
       lastStreakUrl = currentTabUrl;
       sameUrlWarnedAt = 0;
+    }
+
+    try {
+      const fpEntry = getLastFingerprintForTab(initialTabId);
+      let pathKey = currentTabUrl || '';
+      try {
+        const u = new URL(currentTabUrl || '');
+        pathKey = `${u.hostname}${u.pathname}`;
+      } catch { /* keep raw URL */ }
+      const pageKey = `${pathKey}::${fpEntry?.fingerprint || ''}`;
+      if (pageKey && pageKey !== lastCheckpointPageKey) {
+        lastCheckpointPageKey = pageKey;
+        pagesSinceCheckpoint++;
+      }
+      if (pagesSinceCheckpoint >= 2) {
+        pagesSinceCheckpoint = 0;
+        const completedPagesSnap = await getCompletedPages(activeCheckpointKey);
+        await saveCheckpoint({
+          sessionKey: activeCheckpointKey,
+          task,
+          tabId: initialTabId,
+          url: currentTabUrl,
+          fingerprint: fpEntry?.fingerprint || '',
+          turn: steps,
+          steps,
+          messages,
+          startedAt: mcpSession?.startTime || uiSessionState.currentTask?.startTime || null,
+          completedPages: completedPagesSnap,
+        });
+        const draftChunks = getChunks(initialTabId).slice(0, -1);
+        let draftSaved = 0;
+        for (const c of draftChunks) {
+          if (c.steps.length < 1) continue;
+          await upsertPlanForPage({
+            domain: c.domain,
+            fingerprint: c.fingerprint,
+            steps: c.steps,
+            startUrl: c.startUrl,
+            modelVersion: getConfig().model || '',
+            taskKind: 'application',
+            status: 'draft',
+          });
+          draftSaved++;
+        }
+        await taskLog('CHECKPOINT', `Saved checkpoint at turn ${steps}`, { url: currentTabUrl, fingerprint: fpEntry?.fingerprint || '' });
+        if (draftSaved > 0) {
+          await taskLog('LEARNED_PLAN', `Saved ${draftSaved} draft page-plan(s) from unfinished run`);
+        }
+      }
+    } catch {
+      // Checkpointing must never interrupt a live automation run.
     }
 
     // Calculate token count for monitoring
@@ -1249,20 +1366,38 @@ ${mcpSession.context}</system-reminder>`,
 
     let response;
     try {
-      const llmPromise = callLLM(
-        messages,
-        onTextChunk,
-        taskLog,
-        currentTabUrl,
-        mcpSession?.abortController?.signal,
-        mcpSession ? { configOverride: mcpSession.modelConfig } : {}
-      );
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`LLM watchdog timeout after ${LLM_WATCHDOG_TIMEOUT_MS / 1000} seconds`));
-        }, LLM_WATCHDOG_TIMEOUT_MS);
-      });
-      response = await Promise.race([llmPromise, timeoutPromise]);
+      const callOnce = () => {
+        const llmPromise = callLLM(
+          messages,
+          onTextChunk,
+          taskLog,
+          currentTabUrl,
+          mcpSession?.abortController?.signal,
+          mcpSession ? { configOverride: mcpSession.modelConfig } : {}
+        );
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`LLM watchdog timeout after ${LLM_WATCHDOG_TIMEOUT_MS / 1000} seconds`));
+          }, LLM_WATCHDOG_TIMEOUT_MS);
+        });
+        return Promise.race([llmPromise, timeoutPromise]);
+      };
+
+      try {
+        response = await callOnce();
+      } catch (firstError) {
+        if (!isLLMTimeoutError(firstError) || isRunCancelled()) throw firstError;
+        await taskLog('API', 'First LLM call timed out before producing a tool call; retrying once with an explicit continue nudge', {
+          error: firstError.message,
+          url: currentTabUrl,
+        });
+        messages.push({
+          role: 'user',
+          content: `<system-reminder>The previous model request timed out before any browser tool ran. Do not restart the application. Continue from the live tab immediately: call read_page or tabs_context, then take the next action.</system-reminder>`,
+        });
+        streamedText = '';
+        response = await callOnce();
+      }
 
       // Track token usage for cost analysis
       if (response.usage) {
@@ -1354,11 +1489,13 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
       onUpdate({ step: steps, status: 'executing', tool: toolUse.name, input: toolUse.input });
 
       // Dedup: skip form_input if same ref+value was already successfully filled
-      if (toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value) {
-        const cacheKey = String(toolUse.input.ref);
-        if (filledFieldsCache.get(cacheKey) === toolUse.input.value) {
-          await taskLog('TOOL', `Skipping duplicate form_input: ref=${cacheKey} already set to "${toolUse.input.value}"`);
-          const skipResult = { toolResult: { type: 'tool_result', tool_use_id: toolUse.id, content: `Already filled: ref=${cacheKey} has value "${toolUse.input.value}". Skip this field and move to the next empty field or click Submit.` }, updatePayload: { step: steps, status: 'executed', tool: 'form_input', input: toolUse.input, result: 'skipped (already filled)' } };
+      const isWorkdayApplyPage = /myworkdayjobs\.com|myworkday\.com/i.test(currentTabUrl || '');
+      if (!isWorkdayApplyPage && toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value) {
+        const cacheKeys = formFillCacheKeys(toolUse.input.tabId || initialTabId, toolUse.input);
+        const hitKey = cacheKeys.find(k => filledFieldsCache.get(k) === toolUse.input.value);
+        if (hitKey) {
+          await taskLog('TOOL', `Skipping duplicate form_input: ${hitKey} already set to "${toolUse.input.value}"`);
+          const skipResult = { toolResult: { type: 'tool_result', tool_use_id: toolUse.id, content: `Already filled: ${hitKey} has value "${toolUse.input.value}". Skip this field and move to the next empty field or click Submit.` }, updatePayload: { step: steps, status: 'executed', tool: 'form_input', input: toolUse.input, result: 'skipped (already filled)' } };
           toolResults.push(skipResult.toolResult);
           onUpdate(skipResult.updatePayload);
           continue;
@@ -1430,10 +1567,12 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
       // earlier substring check missed 'Set tel to' (phone), 'Set number to', 'Set date to',
       // 'Checkbox checked', 'Radio button selected', and other non-text fields, which is why
       // phone fields got re-typed after the agent scrolled back to the top.
-      if (toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value && !isError) {
+      if (!isWorkdayApplyPage && toolUse.name === 'form_input' && toolUse.input?.ref && toolUse.input?.value && !isError) {
         const resultStr = typeof result === 'object' ? JSON.stringify(result) : String(result);
         if (/(Set [a-z]+ to|Selected|Checkbox (checked|unchecked)|Radio button)/.test(resultStr)) {
-          filledFieldsCache.set(String(toolUse.input.ref), toolUse.input.value);
+          for (const key of formFillCacheKeys(toolUse.input.tabId || initialTabId, toolUse.input)) {
+            filledFieldsCache.set(key, toolUse.input.value);
+          }
         }
       }
 
@@ -1454,10 +1593,34 @@ Stay on the employer ATS tab unless the workflow explicitly requires switching.`
       // The recorder is now CHUNKED — passing the live URL + fingerprint lets
       // it split the recording at page boundaries, so a Workday application
       // becomes 6 per-page rows instead of one 60-step trajectory.
+      if (isError && !['read_page', 'tabs_context'].includes(toolUse.name)) {
+        try {
+          const profile = (getConfig().profile) || getConfig().userProfile || null;
+          const step = stepFromToolCall(toolUse, profile, getRefMetaForTab(initialTabId));
+          const fpEntry = getLastFingerprintForTab(initialTabId);
+          let domain = '';
+          if (currentTabUrl) {
+            try { domain = new URL(currentTabUrl).hostname.toLowerCase(); } catch { /* empty */ }
+          }
+          if (step && fpEntry?.fingerprint && domain) {
+            await recordPlanFailure({
+              domain,
+              fingerprint: fpEntry.fingerprint,
+              step,
+              error: typeof result === 'string' ? result : result?.error || JSON.stringify(result || {}),
+              startUrl: currentTabUrl,
+              taskKind: 'application',
+            });
+            await taskLog('LEARNED_PLAN', `Saved failed-action hint for ${domain}`, { fingerprint: fpEntry.fingerprint, tool: toolUse.name });
+          }
+        } catch {
+          // Failure memory is best-effort.
+        }
+      }
       if (!isError) {
         try {
           const profile = (getConfig().profile) || getConfig().userProfile || null;
-          const step = stepFromToolCall(toolUse, profile, /* refMeta */ null);
+          const step = stepFromToolCall(toolUse, profile, getRefMetaForTab(initialTabId));
           if (step) {
             const fpEntry = getLastFingerprintForTab(initialTabId);
             recordStep(initialTabId, step, {
@@ -1605,7 +1768,10 @@ async function startTask(tabId, task, shouldAskBeforeActing = true, images = [],
   try {
     const result = await runAgentLoop(tabId, task, update => {
       uiSessionState.currentTask.steps.push(update);
-      chrome.runtime.sendMessage({ type: 'TASK_UPDATE', update }).catch(() => {});
+      // UI: piggyback the current task's usage on each update so the sidepanel
+      // can render a live token/call meter without a separate request channel.
+      const usage = getTaskUsage();
+      chrome.runtime.sendMessage({ type: 'TASK_UPDATE', update, usage }).catch(() => {});
     }, images, shouldAskBeforeActing, uiSessionState.conversationHistory, tabGroupId);
 
     // Update conversation history with the full message history from this run
@@ -1655,6 +1821,12 @@ async function startTask(tabId, task, shouldAskBeforeActing = true, images = [],
             modelVersion,
             taskKind: 'application',
           });
+          // Mark each page complete so restarts skip it
+          await markPageComplete(activeCheckpointKey, {
+            fingerprint: c.fingerprint,
+            url: c.startUrl || '',
+            pageLabel: c.domain || '',
+          });
           saved++;
         }
         if (saved > 0) {
@@ -1686,7 +1858,7 @@ async function startTask(tabId, task, shouldAskBeforeActing = true, images = [],
     // Record successful task completion for usage stats
     recordTaskCompletion(true);
 
-    chrome.runtime.sendMessage({ type: 'TASK_COMPLETE', result }).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'TASK_COMPLETE', result, usage: taskUsage }).catch(() => {});
     return result;
   } catch (error) {
     await detachDebugger();
@@ -1726,7 +1898,8 @@ async function startTask(tabId, task, shouldAskBeforeActing = true, images = [],
     chrome.runtime.sendMessage({
       type: isCancelled ? 'TASK_COMPLETE' : 'TASK_ERROR',
       result: isCancelled ? { success: false, message: 'Task stopped by user' } : undefined,
-      error: isCancelled ? undefined : error.message
+      error: isCancelled ? undefined : error.message,
+      usage: taskUsage,
     }).catch(() => {});
 
     if (!isCancelled) {

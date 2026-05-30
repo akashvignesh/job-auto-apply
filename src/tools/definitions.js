@@ -13,7 +13,17 @@ export const CLAUDE_ONLY_TOOLS = ['turn_answer_start', 'update_plan'];
 export const TOOL_DEFINITIONS = [
   {
     name: 'read_page',
-    description: `Get a rich DOM tree of the page via Chrome DevTools Protocol. Captures immediately (no built-in wait for page load or spinners). If the DOM looks empty, call read_page again after a short pause. Returns interactive elements with numeric backendNodeId references (e.g., [42]<button>Submit</button>). IMPORTANT: Only use element IDs from the CURRENT output — IDs change between calls. Pierces shadow DOM and iframes automatically. tabId is optional — if omitted, the active tab is used automatically. By default no screenshot is included (saves ~1800 tokens per call); pass screenshot=true only when you need visual context (Google Docs/Figma/Canva-style apps, or when the DOM is unclear).`,
+    description: `Read the current page in one of five modes. Default mode is "summary" — a compact ~1-2K view with the fields, buttons, errors, blocker, and next safe action. Use "full" only when you genuinely need the raw DOM tree. Refs (e.g., [42]) only stay valid until the page changes — re-read after navigations. Pierces shadow DOM and iframes automatically. tabId optional.
+
+Modes:
+- summary       (DEFAULT, ~1-2K) page meta + fields + buttons + errors + blocker + next safe action — use this for almost every read.
+- actions       (~0.5-1K)        interactive elements only ([ref] kind "label" state) — when you only need targets, not page text.
+- errors        (~0.2-0.5K)      validation errors and invalid fields — after a failed submit.
+- form_summary  (~0.5-1K)        required-field fill state + submit button state — to check "am I ready to submit?".
+- full          (~15-20K)        raw DOM tree (the previous default) — only when summary/actions is insufficient.
+- region        (full subtree)    subtree of a single ref (provide ref).
+
+Screenshots are budgeted: <=2 per page-fingerprint and <=1 within ~1.5s. If the DOM hash hasn't changed since the last screenshot, the request is blocked with a reuse note — there is no point capturing the same image twice.`,
     input_schema: {
       type: 'object',
       properties: {
@@ -21,13 +31,22 @@ export const TOOL_DEFINITIONS = [
           type: 'number',
           description: 'Tab ID to target. Optional — if omitted, uses the active tab in your window.',
         },
+        mode: {
+          type: 'string',
+          enum: ['summary', 'actions', 'errors', 'form_summary', 'full', 'region'],
+          description: 'Output mode (default: "summary"). See tool description for details. Use "full" only when summary/actions is insufficient.',
+        },
+        ref: {
+          type: 'string',
+          description: 'Required when mode="region". The ref to scope output to.',
+        },
         max_chars: {
           type: 'number',
-          description: 'Maximum characters for output (default: 20000, capped at 30000). Modals/dialogs are auto-hoisted to the top of the output, so you do not need a large value to see overlays.',
+          description: 'Only applied to mode="full" or "region" (default 20000, capped at 20000). Ignored for compact modes which are bounded by construction.',
         },
         screenshot: {
           type: 'boolean',
-          description: 'Include a screenshot with the DOM. Default false. Set true only when the DOM alone is insufficient (visual apps, ambiguous layout, or debugging). Each screenshot costs ~1800 tokens.',
+          description: 'Include a screenshot with the read. Default false. Subject to per-fingerprint budget (<=2) and a ~1.5s consecutive-screenshot cap. Each screenshot costs ~1800 tokens.',
         },
       },
       required: [],

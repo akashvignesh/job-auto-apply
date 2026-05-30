@@ -1,4 +1,26 @@
+import { useState } from 'preact/hooks';
 import { formatMarkdown } from '../utils/format';
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = (e) => {
+    e.stopPropagation();
+    try {
+      navigator.clipboard.writeText(text || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1100);
+    } catch { /* ignore */ }
+  };
+  return (
+    <button class={`copy-btn ${copied ? 'copied' : ''}`} onClick={onClick} title={copied ? 'Copied' : 'Copy message'} aria-label="Copy message">
+      {copied ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12" /></svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      )}
+    </button>
+  );
+}
 
 export function Message({ message }) {
   const { type, text, images } = message;
@@ -54,6 +76,7 @@ export function Message({ message }) {
           class="content"
           dangerouslySetInnerHTML={{ __html: formatMarkdown(text) }}
         />
+        {text && <CopyButton text={text} />}
       </div>
     );
   }

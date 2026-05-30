@@ -138,7 +138,7 @@ export function getChunks(tabId) {
       domain: c.hostname,
       fingerprint: c.fingerprint,
       startUrl: c.startUrl,
-      steps: c.steps.slice(),
+      steps: compactSteps(c.steps),
     }));
 }
 
@@ -152,6 +152,91 @@ export function getRecording(tabId) {
   const flat = [];
   for (const c of state.chunks) flat.push(...c.steps);
   return flat;
+}
+
+/**
+ * Collapse a noisy trial-and-error trajectory into the final useful actions.
+ *
+ * If a field is filled multiple times on the same page, only the last fill for
+ * that stable field identity is useful for replay. This prevents learned plans
+ * from replaying mistakes like selecting Bahrain (+973) and then correcting it
+ * to United States (+1). Failed tool calls are recorded separately by
+ * recordPlanFailure(), so they do not belong in the worked plan.
+ */
+export function compactSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return [];
+  const keep = [];
+  const lastIndexByKey = new Map();
+
+  for (const step of steps) {
+    const key = compactKeyForStep(step);
+    if (key && lastIndexByKey.has(key)) {
+      keep[lastIndexByKey.get(key)] = null;
+    }
+    if (key) lastIndexByKey.set(key, keep.length);
+    keep.push(step);
+  }
+
+  return keep.filter(Boolean);
+}
+
+function compactKeyForStep(step) {
+  if (!step || !step.tool) return '';
+  if (step.tool === 'form_input' || step.tool === 'file_upload') {
+    const field = stableFieldIdentity(step);
+    return field ? `${step.tool}:${field}` : '';
+  }
+  if (step.tool === 'click') {
+    const role = String(step.role || '').toLowerCase();
+    const action = String(step.action || '').toLowerCase();
+    const selector = parseSelectorHint(step.selectorHint || '');
+    if ((role === 'radio' || role === 'checkbox') && selector.name) {
+      return `click:${action}:${role}:name=${selector.name}`;
+    }
+    if ((role === 'radio' || role === 'checkbox') && selector.id) {
+      return `click:${action}:${role}:id=${selector.id}`;
+    }
+  }
+  return '';
+}
+
+function stableFieldIdentity(step) {
+  const selector = parseSelectorHint(step.selectorHint || '');
+  if (selector.id) return `id=${selector.id}`;
+  if (selector.name) return `name=${selector.name}`;
+  if (selector.automationId && step.label) return `automation=${selector.automationId}|label=${normalize(step.label)}`;
+  if (step.label) return `label=${normalize(step.label)}|role=${normalize(step.role || '')}`;
+  if (selector.placeholder && selector.role) return `placeholder=${selector.placeholder}|role=${selector.role}`;
+  return '';
+}
+
+function parseSelectorHint(hint) {
+  const out = {};
+  const s = String(hint || '');
+  const simplePairs = [
+    ['role', /(?:^| )role=([^ ]+)/],
+    ['tag', /(?:^| )tag=([^ ]+)/],
+    ['automationId', /(?:^| )data-automation-id=([^ ]+)/],
+    ['name', /(?:^| )name=([^ ]+)/],
+    ['id', /(?:^| )id=([^ ]+)/],
+  ];
+  for (const [key, re] of simplePairs) {
+    const m = s.match(re);
+    if (m) out[key] = normalize(m[1]);
+  }
+  const quotedPairs = [
+    ['label', /label="([^"]+)"/],
+    ['placeholder', /placeholder="([^"]+)"/],
+  ];
+  for (const [key, re] of quotedPairs) {
+    const m = s.match(re);
+    if (m) out[key] = normalize(m[1]);
+  }
+  return out;
+}
+
+function normalize(v) {
+  return String(v || '').trim().replace(/\\s+/g, ' ').toLowerCase();
 }
 
 /**
@@ -232,6 +317,7 @@ export function stepFromToolCall(toolUse, profile, refMeta) {
   const meta = (refMeta && toolUse.input.ref != null)
     ? (refMeta.get ? refMeta.get(String(toolUse.input.ref)) : refMeta[String(toolUse.input.ref)])
     : null;
+  const selectorHint = buildSelectorHint(meta);
 
   switch (toolUse.name) {
     case 'form_input': {
@@ -240,6 +326,7 @@ export function stepFromToolCall(toolUse, profile, refMeta) {
         tool: 'form_input',
         label: meta?.label || '',
         role: meta?.role || '',
+        ...(selectorHint ? { selectorHint } : {}),
         ...(valueKind ? { valueKind } : { value: String(toolUse.input.value ?? '') }),
       };
     }
@@ -252,6 +339,8 @@ export function stepFromToolCall(toolUse, profile, refMeta) {
       return {
         tool: 'file_upload',
         label: meta?.label || '',
+        role: meta?.role || '',
+        ...(selectorHint ? { selectorHint } : {}),
         valueKind: /resume|cv/i.test(basename) ? 'profile.resume' : 'profile.attachment',
       };
     }
@@ -268,6 +357,7 @@ export function stepFromToolCall(toolUse, profile, refMeta) {
         action,
         label: meta?.label || '',
         role: meta?.role || '',
+        ...(selectorHint ? { selectorHint } : {}),
       };
     }
     case 'navigate': {
@@ -280,4 +370,17 @@ export function stepFromToolCall(toolUse, profile, refMeta) {
     default:
       return null;
   }
+}
+
+function buildSelectorHint(meta) {
+  if (!meta) return '';
+  const parts = [];
+  if (meta.role) parts.push(`role=${meta.role}`);
+  if (meta.label) parts.push(`label="${String(meta.label).slice(0, 80)}"`);
+  if (meta.tag) parts.push(`tag=${meta.tag}`);
+  if (meta.id) parts.push(`id=${meta.id}`);
+  if (meta.automationId) parts.push(`data-automation-id=${meta.automationId}`);
+  if (meta.name) parts.push(`name=${meta.name}`);
+  if (meta.placeholder) parts.push(`placeholder="${String(meta.placeholder).slice(0, 80)}"`);
+  return parts.join(' ');
 }

@@ -7,6 +7,7 @@ import { InputArea } from './components/InputArea';
 import { SettingsModal } from './components/SettingsModal';
 import { PlanModal } from './components/PlanModal';
 import { EmptyState } from './components/EmptyState';
+import { UsageBar } from './components/UsageBar';
 
 export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -100,6 +101,13 @@ export function App() {
         onModelSelect={config.selectModel}
         onNewChat={chat.clearChat}
         onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+
+      <UsageBar
+        taskUsage={chat.taskUsage}
+        sessionUsage={chat.sessionUsage}
+        isRunning={chat.isRunning}
+        modelId={config.currentModel?.id || config.currentModel?.modelId || ''}
       />
 
       <div class="messages-container">

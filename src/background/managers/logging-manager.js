@@ -146,6 +146,9 @@ function filterDebugLog(debugLog) {
     'TASK',          // Task completion
     'MEMORY',        // Token counts per turn
     'COMPACT',       // Context compression events
+    'LOOP_DETECTED', // Repeated action / same-page stalls
+    'CHECKPOINT',    // Durable resume checkpoints
+    'LEARNED_PLAN',  // Verified/draft plan saves and failed-action memory
   ];
   return debugLog.filter(entry => essentialTypes.includes(entry.type));
 }
@@ -232,6 +235,49 @@ function buildTurnsFromDebugLog(debugLog) {
   return turns.filter(t => t.ai_response || t.tools.length > 0);
 }
 
+function analyzeTurns(turns) {
+  const toolCounts = {};
+  const repeatedActions = new Map();
+  let readPageCount = 0;
+  let unchangedReadPageCount = 0;
+  let failureCount = 0;
+  const failures = [];
+
+  for (const turn of turns || []) {
+    for (const tool of turn.tools || []) {
+      toolCounts[tool.name] = (toolCounts[tool.name] || 0) + 1;
+      if (tool.name === 'read_page') readPageCount++;
+      const result = String(tool.result || '');
+      if (/Page DOM (mostly )?unchanged/i.test(result)) unchangedReadPageCount++;
+      const isFailure = tool.success === false || /(^|[\s"{])error[:"]|failed|stale|missing|not found|could not resolve/i.test(result);
+      if (isFailure) {
+        failureCount++;
+        failures.push({
+          turn: turn.turn,
+          tool: tool.name,
+          input: tool.input,
+          result: result.slice(0, 300),
+        });
+      }
+      const key = `${tool.name}:${JSON.stringify(tool.input || {}).slice(0, 180)}`;
+      repeatedActions.set(key, (repeatedActions.get(key) || 0) + 1);
+    }
+  }
+
+  return {
+    toolCounts,
+    readPageCount,
+    unchangedReadPageCount,
+    failureCount,
+    repeatedActions: [...repeatedActions.entries()]
+      .filter(([, count]) => count > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([action, count]) => ({ action, count })),
+    recentFailures: failures.slice(-20),
+  };
+}
+
 /**
  * Save task logs to a folder with clean format for debugging
  * @param {Object} taskData - Task data object
@@ -256,6 +302,7 @@ export async function saveTaskLogs(taskData, screenshots = [], options = {}) {
     // Build clean log format
     // Build turns from debug log (complete history) instead of compressed messages
     const turns = buildTurnsFromDebugLog(scopedDebugLog);
+    const analysis = analyzeTurns(turns);
 
     // Build compaction summary from COMPACT entries
     const compactions = scopedDebugLog
@@ -293,6 +340,7 @@ export async function saveTaskLogs(taskData, screenshots = [], options = {}) {
         totalCostUsd: parseFloat(totalCostUsd.toFixed(6)),
       } : null,
       turns,
+      analysis,
       compactions,
       screenshots: screenshots.map((_, i) => `screenshot_${i + 1}.jpeg`),
       errors: scopedDebugLog.filter(e => e.type === 'ERROR').map(e => ({

@@ -406,14 +406,24 @@ export async function handleJavaScriptTool(input) {
     if (!tabId) {
       throw new Error("No active tab found");
     }
+    if (/\.value\s*=|\.checked\s*=|setAttribute\(\s*['"]value['"]/i.test(text)) {
+      return {
+        error: "javascript_tool cannot set form field values. Use form_input so React/Workday controlled state is updated correctly.",
+      };
+    }
 
-    // Build the expression wrapper
+    const source = JSON.stringify(text);
     const expression = `
-      (function() {
+      (async function() {
         'use strict';
+        const source = ${source};
         try {
-          return eval(\`${text.replace(/`/g, "\\`").replace(/\$/g, "\\$")}\`);
+          return await (0, eval)(source);
         } catch (e) {
+          if (e instanceof SyntaxError && /Illegal return statement/.test(String(e.message || e))) {
+            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+            return await AsyncFunction(source)();
+          }
           throw e;
         }
       })()

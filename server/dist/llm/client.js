@@ -14,8 +14,24 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { resolveCredentials, refreshClaudeToken, saveClaudeCredentials, } from "./credentials.js";
-import { callVertexLLM, isVertexConfigured } from "./vertex.js";
-import { callDeepSeekLLM, isDeepSeekConfigured } from "./deepseek.js";
+import { callVertexLLM, isVertexConfigured, VERTEX_CAPABILITIES } from "./vertex.js";
+import { callDeepSeekLLM, isDeepSeekConfigured, DEEPSEEK_CAPABILITIES } from "./deepseek.js";
+import { callBedrockLLM, isBedrockConfigured, BEDROCK_CAPABILITIES } from "./bedrock.js";
+// Phase 7.6 — Anthropic transport capabilities. The Anthropic SDK call below
+// IS the Anthropic adapter for now; when a second Anthropic-compatible transport
+// is added this declaration moves into providers/anthropic.ts.
+export const ANTHROPIC_CAPABILITIES = {
+    name: "anthropic",
+    toolCalling: true,
+    streamingToolCalls: true,
+    parallelToolCalls: true,
+    vision: "native",
+    strictJsonSchema: false,
+    promptCacheType: "anthropic",
+    computerUse: true,
+    reportsUsage: true,
+    streamingText: true,
+};
 // ─── Config ─────────────────────────────────────────────────────────────────
 /** Default model — Claude Haiku 4.5 is fast and cheap; swap to sonnet/opus as needed */
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
@@ -44,7 +60,7 @@ function buildClient(source) {
             authToken: source.credentials.accessToken,
             defaultHeaders: {
                 "anthropic-dangerous-direct-browser-access": "true",
-                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-2024-10-22",
+                "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
                 "x-app": "cli",
                 "user-agent": "claude-code/2.1.29",
             },
@@ -53,21 +69,28 @@ function buildClient(source) {
     throw new Error("Codex credentials are not supported in Claude Code CLI mode. " +
         "Set ANTHROPIC_API_KEY or run `claude login` instead.");
 }
-// ─── Main call ───────────────────────────────────────────────────────────────
-/**
- * Call the LLM using the Anthropic SDK.
- *
- * Routes to Vertex AI (Gemini) if VERTEX_SERVICE_ACCOUNT_JSON is set, then to
- * DeepSeek if DEEPSEEK_API_KEY is set. Otherwise uses Claude via SDK + Claude Code credentials.
- */
-export async function callLLM(params) {
-    // Optional legacy override: Vertex AI (Gemini)
-    if (isVertexConfigured()) {
-        return callVertexLLM(params);
+const PROVIDER_REGISTRY = [
+    { isConfigured: isVertexConfigured, call: callVertexLLM, capabilities: VERTEX_CAPABILITIES },
+    { isConfigured: isDeepSeekConfigured, call: callDeepSeekLLM, capabilities: DEEPSEEK_CAPABILITIES },
+    { isConfigured: isBedrockConfigured, call: callBedrockLLM, capabilities: BEDROCK_CAPABILITIES },
+];
+/** Return the capabilities of the provider that callLLM() will dispatch to. */
+export function getActiveCapabilities() {
+    for (const p of PROVIDER_REGISTRY) {
+        if (p.isConfigured())
+            return p.capabilities;
     }
-    // Optional override: DeepSeek V4 (OpenAI-compatible API)
-    if (isDeepSeekConfigured()) {
-        return callDeepSeekLLM(params);
+    return ANTHROPIC_CAPABILITIES;
+}
+/** Convenience: the name of the active provider. */
+export function getActiveProviderName() {
+    return getActiveCapabilities().name;
+}
+export async function callLLM(params) {
+    // Phase 7.6 — dispatch via the provider registry. First configured wins.
+    for (const p of PROVIDER_REGISTRY) {
+        if (p.isConfigured())
+            return p.call(params);
     }
     const { messages, system, tools, model = DEFAULT_MODEL, maxTokens = DEFAULT_MAX_TOKENS, signal, onText, } = params;
     let source = getSource();

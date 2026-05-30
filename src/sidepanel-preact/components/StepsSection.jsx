@@ -49,9 +49,17 @@ export function StepsSection({ steps, pendingStep }) {
   );
 }
 
+function formatDuration(ms) {
+  if (ms == null || ms <= 0) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
 function StepItem({ step, status }) {
   const description = getActionDescription(step.tool, step.input);
   const resultText = status === 'completed' ? formatStepResult(step.result) : null;
+  const duration = status === 'completed' ? formatDuration(step.durationMs) : null;
 
   return (
     <div class={`step-item ${status}`}>
@@ -65,7 +73,10 @@ function StepItem({ step, status }) {
         )}
       </div>
       <div class="step-content">
-        <div class="step-label">{escapeHtml(description)}</div>
+        <div class="step-label">
+          {escapeHtml(description)}
+          {duration && <span class="step-duration" title={`${step.durationMs}ms`}>{duration}</span>}
+        </div>
         {resultText && (
           <div class="step-result">{escapeHtml(resultText)}</div>
         )}

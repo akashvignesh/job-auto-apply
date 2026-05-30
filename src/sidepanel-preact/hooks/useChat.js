@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 
+const EMPTY_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+  apiCalls: 0,
+};
+
 export function useChat() {
   const [messages, setMessages] = useState([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -7,9 +15,15 @@ export function useChat() {
   const [sessionTabGroupId, setSessionTabGroupId] = useState(null);
   const [pendingPlan, setPendingPlan] = useState(null);
 
+  // Token / call meter. taskUsage refreshes per running task; sessionUsage
+  // accumulates across all tasks in the panel until clearChat.
+  const [taskUsage, setTaskUsage] = useState(EMPTY_USAGE);
+  const [sessionUsage, setSessionUsage] = useState(EMPTY_USAGE);
+
   // Steps tracking for current task
   const [pendingStep, setPendingStep] = useState(null);
   const currentStepsRef = useRef([]);
+  const stepStartRef = useRef(0);
 
   // Streaming state
   const streamingTextRef = useRef('');
@@ -18,15 +32,19 @@ export function useChat() {
   // Listen for messages from service worker
   useEffect(() => {
     const listener = (message) => {
+      // Live usage piggybacks on every task message — keep this OUTSIDE the
+      // switch so it updates regardless of which event arrived first.
+      if (message.usage) setTaskUsage(message.usage);
+
       switch (message.type) {
         case 'TASK_UPDATE':
           handleTaskUpdate(message.update);
           break;
         case 'TASK_COMPLETE':
-          handleTaskComplete(message.result);
+          handleTaskComplete(message.result, message.usage);
           break;
         case 'TASK_ERROR':
-          handleTaskError(message.error);
+          handleTaskError(message.error, message.usage);
           break;
         case 'PLAN_APPROVAL_REQUIRED':
           setPendingPlan(message.plan);
@@ -77,14 +95,18 @@ export function useChat() {
     } else if (update.status === 'executing') {
       // Remove thinking indicator, store pending step
       setMessages(prev => prev.filter(m => m.type !== 'thinking'));
-      setPendingStep({ tool: update.tool, input: update.input });
+      stepStartRef.current = Date.now();
+      setPendingStep({ tool: update.tool, input: update.input, startedAt: stepStartRef.current });
     } else if (update.status === 'executed') {
-      // Add completed step to ref
+      // Add completed step to ref — include duration so the UI can show it.
+      const durationMs = stepStartRef.current > 0 ? Date.now() - stepStartRef.current : null;
       currentStepsRef.current = [...currentStepsRef.current, {
         tool: update.tool,
         input: pendingStep?.input || update.input,
         result: update.result,
+        durationMs,
       }];
+      stepStartRef.current = 0;
       setPendingStep(null);
     } else if (update.status === 'message' && update.text) {
       // Finalize message with its steps
@@ -104,22 +126,34 @@ export function useChat() {
     }
   }, [pendingStep]);
 
-  const handleTaskComplete = useCallback((result) => {
+  const accumulateSession = useCallback((finalTaskUsage) => {
+    if (!finalTaskUsage) return;
+    setSessionUsage((prev) => ({
+      inputTokens: prev.inputTokens + (finalTaskUsage.inputTokens || 0),
+      outputTokens: prev.outputTokens + (finalTaskUsage.outputTokens || 0),
+      cacheCreationTokens: prev.cacheCreationTokens + (finalTaskUsage.cacheCreationTokens || 0),
+      cacheReadTokens: prev.cacheReadTokens + (finalTaskUsage.cacheReadTokens || 0),
+      apiCalls: prev.apiCalls + (finalTaskUsage.apiCalls || 0),
+    }));
+  }, []);
+
+  const handleTaskComplete = useCallback((result, finalUsage) => {
     setIsRunning(false);
     setMessages(prev => prev.filter(m => m.type !== 'thinking'));
     setStreamingMessageId(null);
     streamingTextRef.current = '';
+    accumulateSession(finalUsage);
 
-    if (result.message && !result.success) {
+    if (result && result.message && !result.success) {
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'system',
         text: result.message,
       }]);
     }
-  }, []);
+  }, [accumulateSession]);
 
-  const handleTaskError = useCallback((error) => {
+  const handleTaskError = useCallback((error, finalUsage) => {
     setIsRunning(false);
     setMessages(prev => {
       const filtered = prev.filter(m => m.type !== 'thinking' && m.type !== 'streaming');
@@ -131,7 +165,8 @@ export function useChat() {
     });
     setStreamingMessageId(null);
     streamingTextRef.current = '';
-  }, []);
+    accumulateSession(finalUsage);
+  }, [accumulateSession]);
 
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || isRunning) return;
@@ -145,11 +180,13 @@ export function useChat() {
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // Clear attached images and reset steps
+    // Clear attached images and reset steps + per-task usage. Session usage
+    // is preserved across tasks — it only resets on clearChat.
     const imagesToSend = [...attachedImages];
     setAttachedImages([]);
     currentStepsRef.current = [];
     setPendingStep(null);
+    setTaskUsage(EMPTY_USAGE);
 
     // Get active tab
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -197,6 +234,8 @@ export function useChat() {
     setStreamingMessageId(null);
     streamingTextRef.current = '';
     setSessionTabGroupId(null);
+    setTaskUsage(EMPTY_USAGE);
+    setSessionUsage(EMPTY_USAGE);
     chrome.runtime.sendMessage({ type: 'CLEAR_CONVERSATION' }).catch(() => {});
   }, []);
 
@@ -229,6 +268,8 @@ export function useChat() {
     attachedImages,
     pendingStep,
     pendingPlan,
+    taskUsage,
+    sessionUsage,
 
     // Actions
     sendMessage,

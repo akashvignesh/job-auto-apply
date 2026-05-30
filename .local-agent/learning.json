@@ -1,0 +1,207 @@
+{
+  "runs": [
+    {
+      "at": "2026-05-29T21:23:47.683Z",
+      "runDir": "D:\\Code\\Git\\job_apply\\job-auto-apply\\runs\\local-agent\\2026-05-29T21-23-47-147Z",
+      "status": "error",
+      "task": "Apply to the Senior Software Development Engineer position at Workday. The job URL is https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127 . Fill all required fields using the applicant profile, upload the resume from profile/resume.pdf, complete all pages of the application, and submit.",
+      "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+      "analysis": {
+        "toolCounts": {},
+        "readPageCount": 0,
+        "failures": 0,
+        "repeatedActions": []
+      }
+    },
+    {
+      "at": "2026-05-29T21:24:10.803Z",
+      "runDir": "D:\\Code\\Git\\job_apply\\job-auto-apply\\runs\\local-agent\\2026-05-29T21-24-10-356Z",
+      "status": "error",
+      "task": "Apply to the Senior Software Development Engineer position at Workday. The job URL is https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127 . Fill all required fields using the applicant profile, upload the resume from profile/resume.pdf, complete all pages of the application, and submit.",
+      "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+      "analysis": {
+        "toolCounts": {},
+        "readPageCount": 0,
+        "failures": 0,
+        "repeatedActions": []
+      }
+    },
+    {
+      "at": "2026-05-29T21:28:38.191Z",
+      "runDir": "D:\\Code\\Git\\job_apply\\job-auto-apply\\runs\\local-agent\\2026-05-29T21-25-11-639Z",
+      "status": "error",
+      "task": "Apply to the Senior Software Development Engineer position at Workday. The job URL is https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127 . Fill all required fields using the applicant profile, upload the resume from profile/resume.pdf, complete all pages of the application, and submit.",
+      "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+      "analysis": {
+        "toolCounts": {
+          "navigate": 1,
+          "read_page": 17,
+          "computer": 47,
+          "form_input": 7,
+          "run_script": 1,
+          "find": 2,
+          "javascript_tool": 2
+        },
+        "readPageCount": 17,
+        "failures": 0,
+        "repeatedActions": [
+          {
+            "action": "computer:{\"action\":\"screenshot\"}",
+            "count": 18
+          },
+          {
+            "action": "read_page:{\"max_chars\":15000}",
+            "count": 6
+          },
+          {
+            "action": "computer:{\"action\":\"wait\",\"duration\":3}",
+            "count": 5
+          },
+          {
+            "action": "computer:{\"action\":\"wait\",\"duration\":2}",
+            "count": 4
+          },
+          {
+            "action": "read_page:{\"max_chars\":10000}",
+            "count": 3
+          },
+          {
+            "action": "read_page:{\"max_chars\":25000}",
+            "count": 3
+          },
+          {
+            "action": "read_page:{\"max_chars\":30000}",
+            "count": 3
+          },
+          {
+            "action": "read_page:{\"max_chars\":20000}",
+            "count": 2
+          },
+          {
+            "action": "computer:{\"action\":\"left_click\",\"ref\":\"12\"}",
+            "count": 2
+          },
+          {
+            "action": "computer:{\"action\":\"left_click\",\"ref\":\"30\"}",
+            "count": 2
+          },
+          {
+            "action": "computer:{\"action\":\"wait\",\"duration\":1}",
+            "count": 2
+          },
+          {
+            "action": "form_input:{\"ref\":\"17\",\"value\":\"LinkedIn\"}",
+            "count": 2
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-05-29T21:37:19.300Z",
+      "runDir": "D:\\Code\\Git\\job_apply\\job-auto-apply\\runs\\local-agent\\2026-05-29T21-33-16-149Z",
+      "status": "max_steps",
+      "task": "Apply to the Senior Software Development Engineer position at Workday. Complete all pages of the application form including personal info, work experience, education, and submit the application.",
+      "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+      "analysis": {
+        "toolCounts": {
+          "navigate": 1,
+          "computer": 66,
+          "read_page": 22,
+          "verify_action": 2,
+          "javascript_tool": 2,
+          "form_input": 4,
+          "find": 3
+        },
+        "readPageCount": 22,
+        "failures": 6,
+        "repeatedActions": [
+          {
+            "action": "computer:{\"action\":\"screenshot\"}",
+            "count": 29
+          },
+          {
+            "action": "read_page:{}",
+            "count": 12
+          },
+          {
+            "action": "read_page:{\"max_chars\":20000}",
+            "count": 9
+          },
+          {
+            "action": "computer:{\"action\":\"scroll\",\"coordinate\":[640,400],\"scroll_direction\":\"up\",\"scroll_amount\":5}",
+            "count": 4
+          },
+          {
+            "action": "form_input:{\"ref\":\"17\",\"value\":\"LinkedIn\"}",
+            "count": 4
+          },
+          {
+            "action": "computer:{\"action\":\"left_click\",\"coordinate\":[227,571]}",
+            "count": 4
+          },
+          {
+            "action": "computer:{\"action\":\"wait\",\"duration\":3}",
+            "count": 3
+          },
+          {
+            "action": "computer:{\"action\":\"left_click\",\"ref\":\"17\"}",
+            "count": 3
+          },
+          {
+            "action": "computer:{\"action\":\"left_click\",\"coordinate\":[415,571]}",
+            "count": 2
+          },
+          {
+            "action": "computer:{\"action\":\"type\",\"text\":\"LinkedIn\"}",
+            "count": 2
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-05-29T21:39:35.665Z",
+      "runDir": "D:\\Code\\Git\\job_apply\\job-auto-apply\\runs\\local-agent\\2026-05-29T21-39-33-425Z",
+      "status": "error",
+      "task": "Apply to the Senior Software Development Engineer position at Workday. Complete all pages of the application form including personal info, work experience, education, and submit the application.",
+      "url": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/details/Senior-Software-Development-Engineer_JR-0107127",
+      "analysis": {
+        "toolCounts": {},
+        "readPageCount": 0,
+        "failures": 0,
+        "repeatedActions": []
+      }
+    }
+  ],
+  "mistakes": [
+    {
+      "at": "2026-05-29T21:37:19.301Z",
+      "action": "computer:{\"action\":\"type\",\"text\":\"LinkedIn\"}",
+      "count": 2,
+      "sample": "Error: Unsupported computer action: type"
+    },
+    {
+      "at": "2026-05-29T21:37:19.300Z",
+      "action": "verify_action:{\"expect\":\"navigated\",\"hint\":\"Check if Apply button navigated to application form\"}",
+      "count": 1,
+      "sample": "Error: verify_action FAIL (navigated): no evidence within 3000ms"
+    },
+    {
+      "at": "2026-05-29T21:37:19.300Z",
+      "action": "verify_action:{\"expect\":\"navigated\",\"hint\":\"Check if Autofill with Resume navigated to application form\"}",
+      "count": 1,
+      "sample": "Error: verify_action FAIL (navigated): no evidence within 3000ms"
+    },
+    {
+      "at": "2026-05-29T21:37:19.300Z",
+      "action": "javascript_tool:{\"action\":\"javascript_exec\",\"text\":\"document.querySelector('input[type=\\\"file\\\"]')\"}",
+      "count": 1,
+      "sample": "Error: Object reference chain is too long"
+    },
+    {
+      "at": "2026-05-29T21:37:19.301Z",
+      "action": "computer:{\"action\":\"triple_click\",\"coordinate\":[415,571]}",
+      "count": 1,
+      "sample": "Error: Unsupported computer action: triple_click"
+    }
+  ]
+}

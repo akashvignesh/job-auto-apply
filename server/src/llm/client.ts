@@ -20,8 +20,26 @@ import {
   saveClaudeCredentials,
   type CredentialSource,
 } from "./credentials.js";
-import { callVertexLLM, isVertexConfigured } from "./vertex.js";
-import { callDeepSeekLLM, isDeepSeekConfigured } from "./deepseek.js";
+import { callVertexLLM, isVertexConfigured, VERTEX_CAPABILITIES } from "./vertex.js";
+import { callDeepSeekLLM, isDeepSeekConfigured, DEEPSEEK_CAPABILITIES } from "./deepseek.js";
+import { callBedrockLLM, isBedrockConfigured, BEDROCK_CAPABILITIES } from "./bedrock.js";
+import type { Capabilities } from "./capabilities.js";
+
+// Phase 7.6 — Anthropic transport capabilities. The Anthropic SDK call below
+// IS the Anthropic adapter for now; when a second Anthropic-compatible transport
+// is added this declaration moves into providers/anthropic.ts.
+export const ANTHROPIC_CAPABILITIES: Capabilities = {
+  name: "anthropic",
+  toolCalling: true,
+  streamingToolCalls: true,
+  parallelToolCalls: true,
+  vision: "native",
+  strictJsonSchema: false,
+  promptCacheType: "anthropic",
+  computerUse: true,
+  reportsUsage: true,
+  streamingText: true,
+};
 
 // ─── Re-exported types (unchanged — loop.ts depends on these) ───────────────
 
@@ -124,7 +142,7 @@ function buildClient(source: CredentialSource): Anthropic {
       defaultHeaders: {
         "anthropic-dangerous-direct-browser-access": "true",
         "anthropic-beta":
-          "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-2024-10-22",
+          "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14",
         "x-app": "cli",
         "user-agent": "claude-code/2.1.29",
       },
@@ -145,15 +163,44 @@ function buildClient(source: CredentialSource): Anthropic {
  * Routes to Vertex AI (Gemini) if VERTEX_SERVICE_ACCOUNT_JSON is set, then to
  * DeepSeek if DEEPSEEK_API_KEY is set. Otherwise uses Claude via SDK + Claude Code credentials.
  */
-export async function callLLM(params: CallLLMParams): Promise<LLMResponse> {
-  // Optional legacy override: Vertex AI (Gemini)
-  if (isVertexConfigured()) {
-    return callVertexLLM(params);
-  }
+/**
+ * Phase 7.6 — provider registry. Ordered by precedence: the first configured
+ * provider wins. Keeping this as a single list rather than scattered `if`
+ * blocks makes adding a new provider a one-line change and lets callers
+ * query the active provider's capabilities via getActiveCapabilities().
+ *
+ * Anthropic is the default and has no isConfigured gate — when no other
+ * provider is set, it falls through to the SDK call below.
+ */
+interface RegistryEntry {
+  isConfigured: () => boolean;
+  call: (p: CallLLMParams) => Promise<LLMResponse>;
+  capabilities: Capabilities;
+}
 
-  // Optional override: DeepSeek V4 (OpenAI-compatible API)
-  if (isDeepSeekConfigured()) {
-    return callDeepSeekLLM(params);
+const PROVIDER_REGISTRY: RegistryEntry[] = [
+  { isConfigured: isVertexConfigured,   call: callVertexLLM,   capabilities: VERTEX_CAPABILITIES },
+  { isConfigured: isDeepSeekConfigured, call: callDeepSeekLLM, capabilities: DEEPSEEK_CAPABILITIES },
+  { isConfigured: isBedrockConfigured,  call: callBedrockLLM,  capabilities: BEDROCK_CAPABILITIES },
+];
+
+/** Return the capabilities of the provider that callLLM() will dispatch to. */
+export function getActiveCapabilities(): Capabilities {
+  for (const p of PROVIDER_REGISTRY) {
+    if (p.isConfigured()) return p.capabilities;
+  }
+  return ANTHROPIC_CAPABILITIES;
+}
+
+/** Convenience: the name of the active provider. */
+export function getActiveProviderName(): string {
+  return getActiveCapabilities().name;
+}
+
+export async function callLLM(params: CallLLMParams): Promise<LLMResponse> {
+  // Phase 7.6 — dispatch via the provider registry. First configured wins.
+  for (const p of PROVIDER_REGISTRY) {
+    if (p.isConfigured()) return p.call(params);
   }
 
   const {

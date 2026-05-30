@@ -47,12 +47,22 @@ export function recordRefMeta(tabId, ref, meta) {
     role: meta.role || '',
     label: meta.label || '',
     tag: meta.tag || '',
+    id: meta.id || '',
+    name: meta.name || '',
+    placeholder: meta.placeholder || '',
+    automationId: meta.automationId || '',
   });
 }
 
 /** Called by read-page-core whenever a tab navigates / closes. */
 export function clearRefMetaForTab(tabId) {
   _refMetaCache.delete(tabId);
+}
+
+/** Snapshot the per-tab ref metadata. Used by the plan recorder. */
+export function getRefMetaForTab(tabId) {
+  const perTab = _refMetaCache.get(tabId);
+  return perTab ? new Map(perTab) : new Map();
 }
 
 /** For tests. */
@@ -86,6 +96,10 @@ export function createElementResolver(sendCommand) {
     const role = String(meta.role || '').replace(/['"\\]/g, '');
     const label = String(meta.label || '').slice(0, 80).replace(/['"\\\n]/g, '');
     const tag = String(meta.tag || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const id = String(meta.id || '').replace(/['"\\\n]/g, '');
+    const nameAttr = String(meta.name || '').replace(/['"\\\n]/g, '');
+    const placeholder = String(meta.placeholder || '').slice(0, 80).replace(/['"\\\n]/g, '');
+    const automationId = String(meta.automationId || '').replace(/['"\\\n]/g, '');
 
     // Build a single expression that runs entirely page-side, so we save a
     // round trip per check. It collects candidates by role OR tag, filters
@@ -96,6 +110,51 @@ export function createElementResolver(sendCommand) {
         var role = ${JSON.stringify(role)};
         var label = ${JSON.stringify(label)}.toLowerCase();
         var tag = ${JSON.stringify(tag)};
+        var id = ${JSON.stringify(id)};
+        var nameAttr = ${JSON.stringify(nameAttr)};
+        var placeholder = ${JSON.stringify(placeholder)};
+        var automationId = ${JSON.stringify(automationId)};
+        function visible(n) {
+          if (!n) return false;
+          if (n.offsetParent !== null) return true;
+          try {
+            var r = n.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          } catch (_e) { return false; }
+        }
+        function ownName(n) {
+          var out = n.getAttribute('aria-label') || n.getAttribute('placeholder') || n.getAttribute('title') || '';
+          var labelledBy = n.getAttribute('aria-labelledby');
+          if (!out && labelledBy) {
+            out = labelledBy.split(/\\s+/).map(function (id) {
+              var e = document.getElementById(id);
+              return e ? (e.textContent || '') : '';
+            }).join(' ');
+          }
+          if (!out && n.id && window.CSS && CSS.escape) {
+            var lab = document.querySelector('label[for="' + CSS.escape(n.id) + '"]');
+            if (lab) out = lab.textContent || '';
+          }
+          if (!out) {
+            var ancestor = n.closest && n.closest('label,[role="group"],fieldset,[data-automation-id]');
+            if (ancestor) out = ancestor.textContent || '';
+          }
+          if (!out) out = n.textContent || '';
+          return String(out).trim().toLowerCase();
+        }
+        var stableSelectors = [];
+        if (automationId) stableSelectors.push('[data-automation-id="' + automationId.replace(/"/g, '\\\\"') + '"]');
+        if (id && window.CSS && CSS.escape) stableSelectors.push('#' + CSS.escape(id));
+        if (nameAttr) stableSelectors.push('[name="' + nameAttr.replace(/"/g, '\\\\"') + '"]');
+        if (placeholder) stableSelectors.push('[placeholder="' + placeholder.replace(/"/g, '\\\\"') + '"]');
+        for (var s = 0; s < stableSelectors.length; s++) {
+          var stableNodes = document.querySelectorAll(stableSelectors[s]);
+          for (var si = 0; si < stableNodes.length; si++) {
+            var sn = stableNodes[si];
+            var snName = ownName(sn);
+            if (visible(sn) && (!label || snName.indexOf(label) !== -1 || label.indexOf(snName) !== -1)) return sn;
+          }
+        }
         var sel = [];
         if (role) sel.push('[role="' + role + '"]');
         if (tag)  sel.push(tag);
@@ -103,6 +162,9 @@ export function createElementResolver(sendCommand) {
         var nodes = document.querySelectorAll(sel.join(','));
         for (var i = 0; i < nodes.length; i++) {
           var n = nodes[i];
+          if (!visible(n)) continue;
+          var nodeName = ownName(n);
+          if (!label || nodeName.indexOf(label) !== -1 || label.indexOf(nodeName) !== -1) return n;
           if (!n || n.offsetParent === null) {
             // offsetParent null for fixed/hidden — still allow elements
             // with non-zero box when getBoundingClientRect is available.
@@ -329,6 +391,18 @@ export function createElementResolver(sendCommand) {
     });
   }
 
+  async function getProperty(tabId, backendNodeId, propertyName) {
+    const objectId = await resolveNode(tabId, backendNodeId);
+    const result = await sendCommand(tabId, 'Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: '(el, prop) => el && el[prop] != null ? String(el[prop]) : ""',
+      arguments: [{ objectId }, { value: propertyName }],
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    return result?.result?.value || '';
+  }
+
   /**
    * Parse a ref string into a backendNodeId.
    * Accepts: "42", 42, "ref_42" (legacy)
@@ -355,6 +429,7 @@ export function createElementResolver(sendCommand) {
     getCoordinates,
     scrollIntoView,
     setFileInputFiles,
+    getProperty,
     parseRef,
   };
 }

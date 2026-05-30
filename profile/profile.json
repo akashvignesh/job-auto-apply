@@ -1,0 +1,163 @@
+{
+  "personal": {
+    "firstName": "Akash",
+    "middleName": "",
+    "lastName": "Sureshkumar",
+    "fullName": "Akash Sureshkumar",
+    "email": "akashsureshkumar.dev@gmail.com",
+    "phone": "(716) 709-0514",
+    "phoneType": "Mobile",
+    "address": "77 Heath St",
+    "city": "Buffalo",
+    "state": "New York",
+    "zip": "14214",
+    "country": "United States",
+    "linkedin": "https://www.linkedin.com/in/akash-sureshkumar/",
+    "github": "https://github.com/akashvignesh",
+    "website": ""
+  },
+  "credentials": {
+    "email": "akashsureshkumar.dev@gmail.com",
+    "password": "Akash@2001"
+  },
+  "files": {
+    "resume": "profile/resume.pdf",
+    "coverLetter": "profile/cover.pdf"
+  },
+  "skills": {
+    "languages": ["Java", "JavaScript", "TypeScript", "Python", "SQL", "Bash"],
+    "frontend": ["React", "Next.js", "Angular"],
+    "backend": ["Spring Boot", "Spring Security", "REST APIs", "Microservices", "Node.js"],
+    "databases": ["PostgreSQL", "Oracle", "Redis", "MySQL"],
+    "cloud": ["AWS", "Docker", "GitHub Actions", "CI/CD", "Linux"],
+    "ai": ["LLM Inference", "CLIP ViT-B/32", "LightGBM", "MLflow", "Power BI"],
+    "practices": ["System Design", "TDD", "JUnit", "Mockito", "SonarQube", "Agile"],
+    "monitoring": ["Splunk", "AWS CloudWatch", "AppDynamics"]
+  },
+  "workHistory": [
+    {
+      "title": "Software Engineer, Research",
+      "company": "University at Buffalo",
+      "startDate": "Feb 2026",
+      "endDate": "Present",
+      "location": "Buffalo, NY",
+      "stack": "Java, Spring Boot, React, Next.js, PostgreSQL, Docker, GitHub Actions",
+      "bullets": [
+        "Architected a JWT/OAuth2-based stateless auth system and built a full-stack Faculty Portal serving 200+ users, exposing 7+ RESTful APIs on Java Spring Boot with React/Next.js frontend and PostgreSQL backend",
+        "Optimized data pipeline query performance by 40% through schema normalization and Hibernate/JPA tuning, cutting DB read load by 35% at peak windows",
+        "Implemented CI/CD via GitHub Actions with Docker containerization, reducing deployment cycle from 30 min to under 5 min with automated test gates, maintaining 99.9% uptime SLA"
+      ]
+    },
+    {
+      "title": "Software Engineer II",
+      "company": "Guardian Life",
+      "startDate": "Apr 2024",
+      "endDate": "Aug 2024",
+      "location": "Chennai, India",
+      "stack": "Java, Spring Boot, Microservices, AWS, Splunk, CloudWatch, CI/CD",
+      "bullets": [
+        "Led decomposition of a monolith into event-driven microservices with isolated CI/CD pipelines, improving release cadence from 1 hour to 15 min and enabling 3x faster feature delivery across 4 Agile teams",
+        "Reduced MTTR from 5 days to 2 days on a high-availability platform (99.9% SLA, 500+ concurrent sessions) by building real-time Splunk and AWS CloudWatch monitoring dashboards",
+        "Mentored 7 engineers on code quality and design patterns via SonarQube quality gates, cutting cyclomatic complexity by 75% across 25+ services"
+      ]
+    },
+    {
+      "title": "Software Engineer I",
+      "company": "Guardian Life",
+      "startDate": "Oct 2022",
+      "endDate": "Mar 2024",
+      "location": "Chennai, India",
+      "stack": "Java, Spring Boot, Oracle/SQL, Redis, Postman, REST APIs, AWS",
+      "bullets": [
+        "Reduced API p95 latency from 455 ms to 120 ms (3x throughput) by rewriting Oracle/SQL execution plans with covering indexes and deploying a Redis distributed cache with TTL-based invalidation across 12+ endpoints",
+        "Improved system reliability by 35% and cut critical production incidents by 40% by implementing circuit breaker patterns and automated Postman regression suites validating 20+ REST API contracts"
+      ]
+    },
+    {
+      "title": "Software Engineer Intern",
+      "company": "Guardian Life",
+      "startDate": "Apr 2022",
+      "endDate": "Sep 2022",
+      "location": "Chennai, India",
+      "stack": "Java, Spring Boot, Oracle, Angular, JUnit, Mockito",
+      "bullets": [
+        "Owned end-to-end SDLC delivery of 5+ production features on a Java Spring Boot microservices platform, reducing manual processing time by 15% per feature and supporting $2M+ in monthly transactions",
+        "Built 3+ Angular UI workflows with reusable service layers; authored JUnit/Mockito contract tests covering 15+ edge cases to same-day resolve a P0 defect, protecting 12K+ customers"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Master of Science",
+      "field": "Engineering Science",
+      "school": "University at Buffalo (SUNY)",
+      "startDate": "Aug 2024",
+      "endDate": "Dec 2025",
+      "location": "Buffalo, NY",
+      "coursework": "Distributed Systems and Big Data, Cloud Computing (AWS), Software Architecture, Machine Learning, Algorithms"
+    },
+    {
+      "degree": "Bachelor of Engineering",
+      "field": "Computer Science and Engineering",
+      "school": "Sri Sairam Engineering College",
+      "startDate": "Aug 2018",
+      "endDate": "Jun 2022",
+      "location": "Chennai, India",
+      "coursework": "OOP, Software Engineering and Design Patterns, Algorithms and Data Structures"
+    }
+  ],
+  "projects": [
+    {
+      "name": "NYC Taxi Demand Predictor",
+      "dates": "Jan–Mar 2025",
+      "description": "End-to-end AI data pipeline ingesting millions of ride events via Confluent Kafka, computing demand predictions across all NYC zones with a Power BI dashboard and Streamlit frontend.",
+      "stack": "Python, LightGBM, Kafka, PostgreSQL, Hopsworks, Power BI"
+    },
+    {
+      "name": "Multimodal Pump Fault Risk Prediction API",
+      "dates": "Oct–Dec 2025",
+      "description": "Containerized LLM-adjacent inference service fusing sensor telemetry with CLIP ViT-B/32 image embeddings via a TransformerCrossModalFusion layer; optimized hot-path 13x (12.1 ms → 0.95 ms), +26% throughput at 75 concurrent users.",
+      "stack": "FastAPI, LightGBM, CLIP ViT-B/32, Docker"
+    }
+  ],
+  "authorization": {
+    "authorizedInUS": true,
+    "requiresSponsorship": false,
+    "visaType": "F-1 OPT / STEM OPT"
+  },
+  "standardAnswers": {
+    "willingToRelocate": true,
+    "over18": true,
+    "expectedSalary": "$90,000",
+    "previouslyEmployedHere": false,
+    "howDidYouHear": ["LinkedIn", "Job Board", "Indeed", "Online", "Social Media", "Other"],
+    "yearsOfExperience": "3",
+    "startDate": "Immediately"
+  },
+  "diversity": {
+    "gender": "Male",
+    "race": "Asian (not Hispanic or Latino)",
+    "hispanicOrLatino": false,
+    "veteranStatus": "Not a protected veteran",
+    "disability": "I don't have a disability"
+  },
+  "dropdownKeywords": {
+    "Country": "United",
+    "State/Province": "New York",
+    "City": "Buffalo",
+    "Degree/Education": "Master",
+    "School/University": "Buffalo",
+    "Field of Study": "Computer",
+    "Experience level": "3",
+    "Job source": "LinkedIn",
+    "Race/Ethnicity": "Asian",
+    "Gender": "Male",
+    "Veteran": "not",
+    "Disability": "don't",
+    "Phone type": "Mobile",
+    "Sponsorship": "No",
+    "Authorization": "Yes",
+    "Visa type": "OPT"
+  },
+  "coverLetterTemplate": "I am a Software Engineer with 3.5+ years of experience building scalable full-stack systems, REST APIs, and microservices on cloud-native platforms. At Guardian Life, I drove a 3x API throughput improvement and led a monolith-to-microservices migration that cut release cycles from 1 hour to 15 minutes. I am excited about the [Role Title] opportunity at [Company Name] because it aligns with my hands-on expertise in Java Spring Boot, AWS, and LLM-powered inference services. I would bring the same end-to-end ownership and measurable impact I have demonstrated across my 3.5 years of production engineering experience."
+}

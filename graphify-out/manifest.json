@@ -1,0 +1,817 @@
+{
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\service-worker.js": {
+    "mtime": 1780082090.5334747,
+    "ast_hash": "8d910f38e76f3a0bb3d9f222693db4e2",
+    "semantic_hash": "8d910f38e76f3a0bb3d9f222693db4e2"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\content-extractor.js": {
+    "mtime": 1780042065.196055,
+    "ast_hash": "20725d37a9cf3e44939c5d7aa2332ba4",
+    "semantic_hash": "20725d37a9cf3e44939c5d7aa2332ba4"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\element-resolver.js": {
+    "mtime": 1780078264.5866938,
+    "ast_hash": "e9b71851aa50eab9f1c55bcd427d3864",
+    "semantic_hash": "e9b71851aa50eab9f1c55bcd427d3864"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\fingerprint.js": {
+    "mtime": 1780070141.093638,
+    "ast_hash": "aebd5c784377ed0a784cc9761ccfc198",
+    "semantic_hash": "aebd5c784377ed0a784cc9761ccfc198"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\index.js": {
+    "mtime": 1780070162.3579116,
+    "ast_hash": "2c6ec32836d1edaba890ed277dbcb934",
+    "semantic_hash": "2c6ec32836d1edaba890ed277dbcb934"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\js-injector.js": {
+    "mtime": 1780042051.0720887,
+    "ast_hash": "75a5bdcfc2a4a208a8b4a5c4dce7b2b8",
+    "semantic_hash": "75a5bdcfc2a4a208a8b4a5c4dce7b2b8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\serializer.js": {
+    "mtime": 1780045097.2628908,
+    "ast_hash": "d3e87465a65b6a8a79e55764dd1b6d44",
+    "semantic_hash": "d3e87465a65b6a8a79e55764dd1b6d44"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\snapshot-lookup.js": {
+    "mtime": 1779511914.4723475,
+    "ast_hash": "a6348e42a99bfc49eba9f11bdef852a8",
+    "semantic_hash": "a6348e42a99bfc49eba9f11bdef852a8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\dom-service\\tree-builder.js": {
+    "mtime": 1780004139.4594152,
+    "ast_hash": "9deb5b9d8c186a1fa8dd72e36a8fe9d3",
+    "semantic_hash": "9deb5b9d8c186a1fa8dd72e36a8fe9d3"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\debugger-manager.js": {
+    "mtime": 1779511914.4723475,
+    "ast_hash": "138ef3b6037063eb68800c86d44bee2a",
+    "semantic_hash": "138ef3b6037063eb68800c86d44bee2a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\indicator-manager.js": {
+    "mtime": 1779511914.4733493,
+    "ast_hash": "305d83eed1539f5d9949d9483d72abf5",
+    "semantic_hash": "305d83eed1539f5d9949d9483d72abf5"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\license-manager.js": {
+    "mtime": 1779511914.4733493,
+    "ast_hash": "732f57298e06f3529dd97a02e9a2c686",
+    "semantic_hash": "732f57298e06f3529dd97a02e9a2c686"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\logging-manager.js": {
+    "mtime": 1780082105.771032,
+    "ast_hash": "0adb5e43983c3a1a7a53f496f8370a80",
+    "semantic_hash": "0adb5e43983c3a1a7a53f496f8370a80"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\tab-manager.js": {
+    "mtime": 1779511914.4733493,
+    "ast_hash": "a88f33e5f9d4e75fbdf77371684fbb5b",
+    "semantic_hash": "a88f33e5f9d4e75fbdf77371684fbb5b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\managers\\usage-tracker.js": {
+    "mtime": 1779511914.4733493,
+    "ast_hash": "d1626d325a2e495f452c721b484d0cc5",
+    "semantic_hash": "d1626d325a2e495f452c721b484d0cc5"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\api.js": {
+    "mtime": 1780036095.4401653,
+    "ast_hash": "4a64a2092e331a7ed12114665b9dc9d7",
+    "semantic_hash": "4a64a2092e331a7ed12114665b9dc9d7"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\captcha-solvers.js": {
+    "mtime": 1779511914.4743502,
+    "ast_hash": "4575f1f71a80508e77c3b01960c63d0a",
+    "semantic_hash": "4575f1f71a80508e77c3b01960c63d0a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\cdp-helper.js": {
+    "mtime": 1779511914.4753482,
+    "ast_hash": "b3ca9f8f3970bb2a6624f52cfbdf94c7",
+    "semantic_hash": "b3ca9f8f3970bb2a6624f52cfbdf94c7"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\checkpoints.js": {
+    "mtime": 1780078471.9648936,
+    "ast_hash": "099693e8e2b1609193297b69cba3fd4f",
+    "semantic_hash": "099693e8e2b1609193297b69cba3fd4f"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\constants.js": {
+    "mtime": 1779941420.765031,
+    "ast_hash": "4a9429d512754fde8a69562291faedb9",
+    "semantic_hash": "4a9429d512754fde8a69562291faedb9"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\conversation-compaction.js": {
+    "mtime": 1780080566.7100031,
+    "ast_hash": "2d6e3e97d6c1ff6eec3da4dacf381960",
+    "semantic_hash": "2d6e3e97d6c1ff6eec3da4dacf381960"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\domain-skills.js": {
+    "mtime": 1779511914.4753482,
+    "ast_hash": "a1cf8113ade2afbd218215dc369229ae",
+    "semantic_hash": "a1cf8113ade2afbd218215dc369229ae"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\error-reporter.js": {
+    "mtime": 1779511914.4763465,
+    "ast_hash": "8928a6c743b6495f17df4f65e6556dc3",
+    "semantic_hash": "8928a6c743b6495f17df4f65e6556dc3"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\key-definitions.js": {
+    "mtime": 1779511914.4763465,
+    "ast_hash": "30f1f02af5d04877661908a0a627420f",
+    "semantic_hash": "30f1f02af5d04877661908a0a627420f"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\learned-plans.js": {
+    "mtime": 1780080350.9308097,
+    "ast_hash": "0704086ff098a176180f4ab631659957",
+    "semantic_hash": "0704086ff098a176180f4ab631659957"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\mac-commands.js": {
+    "mtime": 1779511914.4763465,
+    "ast_hash": "76f97637df14375c83e3f30a4e612841",
+    "semantic_hash": "76f97637df14375c83e3f30a4e612841"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\mcp-bridge.js": {
+    "mtime": 1780026549.9947252,
+    "ast_hash": "936bd09233983043706ae9be93566648",
+    "semantic_hash": "936bd09233983043706ae9be93566648"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\memory-manager.js": {
+    "mtime": 1779981201.68656,
+    "ast_hash": "0bcef400000390c58b0303ace99fcf3c",
+    "semantic_hash": "0bcef400000390c58b0303ace99fcf3c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\mouse-movement.js": {
+    "mtime": 1779511914.477348,
+    "ast_hash": "546f4c03fac6ad1fc84be4790497da23",
+    "semantic_hash": "546f4c03fac6ad1fc84be4790497da23"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\oauth-manager.js": {
+    "mtime": 1779901071.7128026,
+    "ast_hash": "21ed4225d3f4a9f5f6c395f393ef1340",
+    "semantic_hash": "21ed4225d3f4a9f5f6c395f393ef1340"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\plan-recorder.js": {
+    "mtime": 1780078355.773365,
+    "ast_hash": "d1907eb8fe6c56bf7e8df9739b799749",
+    "semantic_hash": "d1907eb8fe6c56bf7e8df9739b799749"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\profile-path.js": {
+    "mtime": 1780082265.476755,
+    "ast_hash": "9430559b8ddadf1b3e88d9d14b66344a",
+    "semantic_hash": "9430559b8ddadf1b3e88d9d14b66344a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\relay-client.js": {
+    "mtime": 1780026579.6718047,
+    "ast_hash": "4859f13947ec993beb1b5d439430e174",
+    "semantic_hash": "4859f13947ec993beb1b5d439430e174"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\screenshot-context.js": {
+    "mtime": 1779905542.9142292,
+    "ast_hash": "6acc78dc28de85e18a476950f59793c1",
+    "semantic_hash": "6acc78dc28de85e18a476950f59793c1"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\system-prompt.js": {
+    "mtime": 1780082125.2504902,
+    "ast_hash": "8427d922c77a6cb909f957b2e9593795",
+    "semantic_hash": "8427d922c77a6cb909f957b2e9593795"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\providers\\anthropic-provider.js": {
+    "mtime": 1780028619.1069639,
+    "ast_hash": "806759d647f9745634f66b8204eecc0a",
+    "semantic_hash": "806759d647f9745634f66b8204eecc0a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\providers\\base-provider.js": {
+    "mtime": 1780036082.5901258,
+    "ast_hash": "81197dfbc2fe8bca7314c2d8891d7371",
+    "semantic_hash": "81197dfbc2fe8bca7314c2d8891d7371"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\providers\\bedrock-provider.js": {
+    "mtime": 1780036074.8187087,
+    "ast_hash": "cff07d54339985e1bf15cd5d521e5eef",
+    "semantic_hash": "cff07d54339985e1bf15cd5d521e5eef"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\providers\\deepseek-provider.js": {
+    "mtime": 1780036088.311553,
+    "ast_hash": "8a4b30c7067697134fd8a32620871896",
+    "semantic_hash": "8a4b30c7067697134fd8a32620871896"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\modules\\providers\\provider-factory.js": {
+    "mtime": 1780032780.9288974,
+    "ast_hash": "eefaef5afda828e6c6e76913c2e11bf9",
+    "semantic_hash": "eefaef5afda828e6c6e76913c2e11bf9"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\agent-tool.js": {
+    "mtime": 1779943106.9211338,
+    "ast_hash": "11987478cc19e0fdaaca9bc1cc90c588",
+    "semantic_hash": "11987478cc19e0fdaaca9bc1cc90c588"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\computer-core.js": {
+    "mtime": 1780042173.9683943,
+    "ast_hash": "0ddf396d62265ed24eed483ab6d715ae",
+    "semantic_hash": "0ddf396d62265ed24eed483ab6d715ae"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\form-core.js": {
+    "mtime": 1780082072.618869,
+    "ast_hash": "ebc8622b38ee9a5f47bf7ca8146371e2",
+    "semantic_hash": "ebc8622b38ee9a5f47bf7ca8146371e2"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\form-tool.js": {
+    "mtime": 1780042256.5119312,
+    "ast_hash": "84103d88162a65e343ab2d7c45d87f5e",
+    "semantic_hash": "84103d88162a65e343ab2d7c45d87f5e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\index.js": {
+    "mtime": 1780071743.616137,
+    "ast_hash": "3c7259e8cb9bb0bda9f40475189959fe",
+    "semantic_hash": "3c7259e8cb9bb0bda9f40475189959fe"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\monitoring-tool.js": {
+    "mtime": 1779511914.484347,
+    "ast_hash": "19bc48592a828292211ddcdfd75bfefb",
+    "semantic_hash": "19bc48592a828292211ddcdfd75bfefb"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\navigation-core.js": {
+    "mtime": 1779511914.484347,
+    "ast_hash": "cad421c975a9ce2dfb1bb98c4214602e",
+    "semantic_hash": "cad421c975a9ce2dfb1bb98c4214602e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\read-page-core.js": {
+    "mtime": 1780078343.9289687,
+    "ast_hash": "a74c697a5fcba0c882409bb80b196e2c",
+    "semantic_hash": "a74c697a5fcba0c882409bb80b196e2c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\script-tool.js": {
+    "mtime": 1780071713.4567606,
+    "ast_hash": "fb02776e2833e413de8562c379814df8",
+    "semantic_hash": "fb02776e2833e413de8562c379814df8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\tabs-tool.js": {
+    "mtime": 1779511914.4853458,
+    "ast_hash": "cd03bc72b19a4057212019b111e418fd",
+    "semantic_hash": "cd03bc72b19a4057212019b111e418fd"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\utility-core.js": {
+    "mtime": 1780082249.5335474,
+    "ast_hash": "a80bcdcf8d02a797209988f7e416f854",
+    "semantic_hash": "a80bcdcf8d02a797209988f7e416f854"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\tool-handlers\\utility-tool.js": {
+    "mtime": 1779511914.486346,
+    "ast_hash": "5f47e4d82661e054ff029ce526bfe66e",
+    "semantic_hash": "5f47e4d82661e054ff029ce526bfe66e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\background\\utils\\retry.js": {
+    "mtime": 1779511914.486346,
+    "ast_hash": "6b0521a15083c1b9838fe137f6180c8d",
+    "semantic_hash": "6b0521a15083c1b9838fe137f6180c8d"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\content\\accessibility-tree.js": {
+    "mtime": 1779511914.486346,
+    "ast_hash": "70b035214e20403a53b1f7f4b08d2e3c",
+    "semantic_hash": "70b035214e20403a53b1f7f4b08d2e3c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\content\\agent-visual-indicator.js": {
+    "mtime": 1779511914.487346,
+    "ast_hash": "5afa06202d4f8bbf1ba4276c08aee83c",
+    "semantic_hash": "5afa06202d4f8bbf1ba4276c08aee83c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\content\\content.js": {
+    "mtime": 1780068294.8971615,
+    "ast_hash": "9277e5cabe7fb920eece581839a51e75",
+    "semantic_hash": "9277e5cabe7fb920eece581839a51e75"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\onboarding\\main.jsx": {
+    "mtime": 1779511914.4883459,
+    "ast_hash": "2d0ab7ff566d1c35406aba4dc6d34fbb",
+    "semantic_hash": "2d0ab7ff566d1c35406aba4dc6d34fbb"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\onboarding\\OnboardingApp.jsx": {
+    "mtime": 1779511914.487346,
+    "ast_hash": "cd3055f89af9c3f56b4a745bdd3e7bb6",
+    "semantic_hash": "cd3055f89af9c3f56b4a745bdd3e7bb6"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\App.jsx": {
+    "mtime": 1779511914.4883459,
+    "ast_hash": "c218386ce6920482c9d7dbc1569014d8",
+    "semantic_hash": "c218386ce6920482c9d7dbc1569014d8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\main.jsx": {
+    "mtime": 1779511914.4923453,
+    "ast_hash": "13765297752534658df7607881e6ac2c",
+    "semantic_hash": "13765297752534658df7607881e6ac2c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\EmptyState.jsx": {
+    "mtime": 1779512572.547186,
+    "ast_hash": "014948386ae790c356b1c07a8773ac33",
+    "semantic_hash": "014948386ae790c356b1c07a8773ac33"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\Header.jsx": {
+    "mtime": 1779511914.4883459,
+    "ast_hash": "79e825ce82cf51aea0c3bf1f45aa2841",
+    "semantic_hash": "79e825ce82cf51aea0c3bf1f45aa2841"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\InputArea.jsx": {
+    "mtime": 1779511914.4893458,
+    "ast_hash": "a2af4e37224780a24e4157d493865dee",
+    "semantic_hash": "a2af4e37224780a24e4157d493865dee"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\Message.jsx": {
+    "mtime": 1779511914.4893458,
+    "ast_hash": "cb66e2b06124316c88d43868ab4fe9dc",
+    "semantic_hash": "cb66e2b06124316c88d43868ab4fe9dc"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\MessageList.jsx": {
+    "mtime": 1779511914.4893458,
+    "ast_hash": "95d72b4c573eea3f3edc0c059d03af29",
+    "semantic_hash": "95d72b4c573eea3f3edc0c059d03af29"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\PlanModal.jsx": {
+    "mtime": 1779511914.4893458,
+    "ast_hash": "823947ad707dc7621883571bf407da6e",
+    "semantic_hash": "823947ad707dc7621883571bf407da6e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\SettingsModal.jsx": {
+    "mtime": 1780036115.1789532,
+    "ast_hash": "da7550245d96707730a18ce6f5f3c3a1",
+    "semantic_hash": "da7550245d96707730a18ce6f5f3c3a1"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\components\\StepsSection.jsx": {
+    "mtime": 1779511914.4903457,
+    "ast_hash": "4c386b0d883372609841ca244b58550e",
+    "semantic_hash": "4c386b0d883372609841ca244b58550e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\config\\providers.js": {
+    "mtime": 1780036546.2094,
+    "ast_hash": "15ab15ac00e7b3ba52778d2c18c2198c",
+    "semantic_hash": "15ab15ac00e7b3ba52778d2c18c2198c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\hooks\\useChat.js": {
+    "mtime": 1779511914.4913464,
+    "ast_hash": "aae443622641a047bb6361ab6feba950",
+    "semantic_hash": "aae443622641a047bb6361ab6feba950"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\hooks\\useConfig.js": {
+    "mtime": 1780032889.365804,
+    "ast_hash": "00d13592f09cb112e0e929a5f39eeb51",
+    "semantic_hash": "00d13592f09cb112e0e929a5f39eeb51"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\hooks\\useFocusTrap.js": {
+    "mtime": 1779511914.4913464,
+    "ast_hash": "ac7a37b67f4bd00bd071620a319e7f54",
+    "semantic_hash": "ac7a37b67f4bd00bd071620a319e7f54"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\utils\\format.js": {
+    "mtime": 1779511914.4933527,
+    "ast_hash": "69ac6a9655e9d9d8f5fa3f300e916550",
+    "semantic_hash": "69ac6a9655e9d9d8f5fa3f300e916550"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\tools\\definitions.js": {
+    "mtime": 1780071816.8848035,
+    "ast_hash": "52be47dbd5320f07da07d7c5583b3e49",
+    "semantic_hash": "52be47dbd5320f07da07d7c5583b3e49"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\types\\tools.d.ts": {
+    "mtime": 1779511914.494348,
+    "ast_hash": "5bcba975ab24d9705ec4c8bcf46c9656",
+    "semantic_hash": "5bcba975ab24d9705ec4c8bcf46c9656"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\package.json": {
+    "mtime": 1780081343.0327847,
+    "ast_hash": "19179a8e4b0abb66fbead38d75d3f495",
+    "semantic_hash": "19179a8e4b0abb66fbead38d75d3f495"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\proxy-setup.mjs": {
+    "mtime": 1779511914.451344,
+    "ast_hash": "c608906aed8773f4b83deed6a33d2b42",
+    "semantic_hash": "c608906aed8773f4b83deed6a33d2b42"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\tsconfig.json": {
+    "mtime": 1779511914.4703467,
+    "ast_hash": "7327633ea8bd18d3314dfa8c726469c9",
+    "semantic_hash": "7327633ea8bd18d3314dfa8c726469c9"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\vitest.config.ts": {
+    "mtime": 1779511914.4703467,
+    "ast_hash": "f688dbbafdae02691bf447cf4ab89660",
+    "semantic_hash": "f688dbbafdae02691bf447cf4ab89660"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\package.json": {
+    "mtime": 1779511914.4183817,
+    "ast_hash": "2523c212c29b5753c6dff3fb5e188296",
+    "semantic_hash": "2523c212c29b5753c6dff3fb5e188296"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\vite.config.js": {
+    "mtime": 1779511914.4213908,
+    "ast_hash": "a9924ef21df40ee80d254cc7ccc9f369",
+    "semantic_hash": "a9924ef21df40ee80d254cc7ccc9f369"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\src\\api.js": {
+    "mtime": 1779511914.4193766,
+    "ast_hash": "71a9c3155596ed3e847be561dcb8dcc0",
+    "semantic_hash": "71a9c3155596ed3e847be561dcb8dcc0"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\src\\App.jsx": {
+    "mtime": 1779511914.4193766,
+    "ast_hash": "26cbc0173ccfd6ed15cd662c5875af86",
+    "semantic_hash": "26cbc0173ccfd6ed15cd662c5875af86"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\src\\main.jsx": {
+    "mtime": 1779511914.4193766,
+    "ast_hash": "5900231e9fa4636c4193e8c6c15c2f6b",
+    "semantic_hash": "5900231e9fa4636c4193e8c6c15c2f6b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\cli.ts": {
+    "mtime": 1779511914.4583437,
+    "ast_hash": "36bd91f54ba592f0546534af4e4bb0c4",
+    "semantic_hash": "36bd91f54ba592f0546534af4e4bb0c4"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\index.ts": {
+    "mtime": 1779511914.4593444,
+    "ast_hash": "039b4a0b6aee9c975ace4f657026d008",
+    "semantic_hash": "039b4a0b6aee9c975ace4f657026d008"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\telemetry.ts": {
+    "mtime": 1779511914.4683485,
+    "ast_hash": "4ae603b2f6c831ff56d2f3a7226eb99e",
+    "semantic_hash": "4ae603b2f6c831ff56d2f3a7226eb99e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\agent\\domain-knowledge.ts": {
+    "mtime": 1779511914.4573429,
+    "ast_hash": "16c818d8699a815714fd6522ae04b806",
+    "semantic_hash": "16c818d8699a815714fd6522ae04b806"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\agent\\domain-skills.json": {
+    "mtime": 1780031124.5475044,
+    "ast_hash": "208ecca10e47b3a5f51a59468bb460ba",
+    "semantic_hash": "208ecca10e47b3a5f51a59468bb460ba"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\agent\\loop.ts": {
+    "mtime": 1780082142.1099715,
+    "ast_hash": "ac634af767da966349b8a6e51e5ed44e",
+    "semantic_hash": "ac634af767da966349b8a6e51e5ed44e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\agent\\system-prompt.ts": {
+    "mtime": 1780082129.8153217,
+    "ast_hash": "2bcd764c93dca85bd6b7bc73777da8f4",
+    "semantic_hash": "2bcd764c93dca85bd6b7bc73777da8f4"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\agent\\tools.ts": {
+    "mtime": 1780071840.0243497,
+    "ast_hash": "f40ea763d975e925342f09784de55bcc",
+    "semantic_hash": "f40ea763d975e925342f09784de55bcc"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\cli\\json-output.ts": {
+    "mtime": 1779511914.4593444,
+    "ast_hash": "d098f998ce8fefe3ae3915917013d4a2",
+    "semantic_hash": "d098f998ce8fefe3ae3915917013d4a2"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\cli\\session-files.ts": {
+    "mtime": 1779511914.4593444,
+    "ast_hash": "b79760499c9b2a491f2780b5858a3293",
+    "semantic_hash": "b79760499c9b2a491f2780b5858a3293"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\cli\\setup.ts": {
+    "mtime": 1779511914.4593444,
+    "ast_hash": "822764507b7de4749815742ddd54cede",
+    "semantic_hash": "822764507b7de4749815742ddd54cede"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\ipc\\index.ts": {
+    "mtime": 1779511914.4603431,
+    "ast_hash": "a36b36304bbc6ec79bf50b8720fe6ad7",
+    "semantic_hash": "a36b36304bbc6ec79bf50b8720fe6ad7"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\ipc\\native-host.ts": {
+    "mtime": 1779511914.4603431,
+    "ast_hash": "ce7d9fa6da9962806000a1d5c28cbcc8",
+    "semantic_hash": "ce7d9fa6da9962806000a1d5c28cbcc8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\ipc\\websocket-client.ts": {
+    "mtime": 1779511914.4603431,
+    "ast_hash": "e4ff69f7ab18fda8a1473de8b38c5e4a",
+    "semantic_hash": "e4ff69f7ab18fda8a1473de8b38c5e4a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\license\\manager.ts": {
+    "mtime": 1779511914.4603431,
+    "ast_hash": "650c3862a6546ba9c6bc2e297e9b108e",
+    "semantic_hash": "650c3862a6546ba9c6bc2e297e9b108e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\llm\\auth.ts": {
+    "mtime": 1780012161.8989158,
+    "ast_hash": "b4af30b9e22eb0c4fe161fc4df28b9f6",
+    "semantic_hash": "b4af30b9e22eb0c4fe161fc4df28b9f6"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\llm\\client.ts": {
+    "mtime": 1780032735.543898,
+    "ast_hash": "c60a4c24597ebf82288b12250c146bc8",
+    "semantic_hash": "c60a4c24597ebf82288b12250c146bc8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\llm\\deepseek.ts": {
+    "mtime": 1780033745.9017534,
+    "ast_hash": "f26f4f0be5776c8e9df600a2519804af",
+    "semantic_hash": "f26f4f0be5776c8e9df600a2519804af"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\llm\\types.ts": {
+    "mtime": 1780012148.9023416,
+    "ast_hash": "a157c7d0dd1de21627b1c7d08eea11e8",
+    "semantic_hash": "a157c7d0dd1de21627b1c7d08eea11e8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\llm\\vertex.ts": {
+    "mtime": 1779511914.4613442,
+    "ast_hash": "fc03a043ce37b24d6829ca23d703e79b",
+    "semantic_hash": "fc03a043ce37b24d6829ca23d703e79b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\local-runner\\browser.ts": {
+    "mtime": 1780082255.172788,
+    "ast_hash": "ab7da9a605e903a47a316480d744d546",
+    "semantic_hash": "ab7da9a605e903a47a316480d744d546"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\local-runner\\cdp.ts": {
+    "mtime": 1780081212.1001146,
+    "ast_hash": "288f998bb37d939779a25fac402a89c2",
+    "semantic_hash": "288f998bb37d939779a25fac402a89c2"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\local-runner\\cli.ts": {
+    "mtime": 1780081475.316448,
+    "ast_hash": "3e146e2f2a2f4da6bf538bcab73e0d0a",
+    "semantic_hash": "3e146e2f2a2f4da6bf538bcab73e0d0a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\local-runner\\learning-store.ts": {
+    "mtime": 1780081315.6940892,
+    "ast_hash": "c888663bae104daa00c968fb9272945d",
+    "semantic_hash": "c888663bae104daa00c968fb9272945d"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\local-runner\\run-logger.ts": {
+    "mtime": 1780081567.549601,
+    "ast_hash": "f43f8a0352763f787f41ad6398c18925",
+    "semantic_hash": "f43f8a0352763f787f41ad6398c18925"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\api-http.test.ts": {
+    "mtime": 1779511914.462348,
+    "ast_hash": "2887f99f584710c95eb5a4eb08c08901",
+    "semantic_hash": "2887f99f584710c95eb5a4eb08c08901"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\api.test.ts": {
+    "mtime": 1779511914.462348,
+    "ast_hash": "9bac67ea99be8edd54635a7e51f5fa32",
+    "semantic_hash": "9bac67ea99be8edd54635a7e51f5fa32"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\api.ts": {
+    "mtime": 1779511914.462348,
+    "ast_hash": "b00771d2e0e8412cd4dc15eb67201078",
+    "semantic_hash": "b00771d2e0e8412cd4dc15eb67201078"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\auth.ts": {
+    "mtime": 1779511914.463344,
+    "ast_hash": "b3d47659c4865fb91d6517aacfcb9b7e",
+    "semantic_hash": "b3d47659c4865fb91d6517aacfcb9b7e"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\billing.ts": {
+    "mtime": 1779511914.463344,
+    "ast_hash": "6c8e7f4fccfe6b4a236fa130203016eb",
+    "semantic_hash": "6c8e7f4fccfe6b4a236fa130203016eb"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\deploy.ts": {
+    "mtime": 1779511914.463344,
+    "ast_hash": "2edfa54422203df5fff661eebacbcbe6",
+    "semantic_hash": "2edfa54422203df5fff661eebacbcbe6"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\e2e.test.ts": {
+    "mtime": 1779511914.463344,
+    "ast_hash": "32dc07e51171581059e99687942735cd",
+    "semantic_hash": "32dc07e51171581059e99687942735cd"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\hardening.test.ts": {
+    "mtime": 1779511914.4643457,
+    "ast_hash": "38587f49de1a000ba6312a7c62dcab32",
+    "semantic_hash": "38587f49de1a000ba6312a7c62dcab32"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\integration.test.ts": {
+    "mtime": 1779511914.4643457,
+    "ast_hash": "243e595085f3bc6ab88edc76c258ee62",
+    "semantic_hash": "243e595085f3bc6ab88edc76c258ee62"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\log.ts": {
+    "mtime": 1779511914.4643457,
+    "ast_hash": "a7a3d7b9f48601e3597f5f439e9d9914",
+    "semantic_hash": "a7a3d7b9f48601e3597f5f439e9d9914"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\notify.ts": {
+    "mtime": 1779511914.4643457,
+    "ast_hash": "226e5840b44111ac967958f3df00bfc2",
+    "semantic_hash": "226e5840b44111ac967958f3df00bfc2"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\scheduler.ts": {
+    "mtime": 1779511914.465346,
+    "ast_hash": "89ed476bdc9fea3b79dec70137254912",
+    "semantic_hash": "89ed476bdc9fea3b79dec70137254912"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\schema.sql": {
+    "mtime": 1779511914.465346,
+    "ast_hash": "8e126890ff8319cec2f4a5e35e2587a3",
+    "semantic_hash": "8e126890ff8319cec2f4a5e35e2587a3"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\server.ts": {
+    "mtime": 1779511914.465346,
+    "ast_hash": "55c8af7b8367d9ea57a2f2177abcfc7f",
+    "semantic_hash": "55c8af7b8367d9ea57a2f2177abcfc7f"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\store-pg.ts": {
+    "mtime": 1779511914.4663496,
+    "ast_hash": "ce252908335ff77873c6a09230967a2b",
+    "semantic_hash": "ce252908335ff77873c6a09230967a2b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\store.ts": {
+    "mtime": 1779511914.4663496,
+    "ast_hash": "1de91f02a279dc0bf9c60fb10bc48786",
+    "semantic_hash": "1de91f02a279dc0bf9c60fb10bc48786"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\telemetry.ts": {
+    "mtime": 1779511914.4663496,
+    "ast_hash": "14d01be0db35871a729f81d432c1f026",
+    "semantic_hash": "14d01be0db35871a729f81d432c1f026"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\routes\\api.ts": {
+    "mtime": 1779511914.4643457,
+    "ast_hash": "5d62736fb41f327ec4b1f70dd4b64e57",
+    "semantic_hash": "5d62736fb41f327ec4b1f70dd4b64e57"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\routes\\pages.ts": {
+    "mtime": 1779511914.465346,
+    "ast_hash": "728b25fb6a620e19b57f4e4670e1da8d",
+    "semantic_hash": "728b25fb6a620e19b57f4e4670e1da8d"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\mcp\\tools.ts": {
+    "mtime": 1779511914.4673474,
+    "ast_hash": "63bce59f39051d713c668c4d3414b947",
+    "semantic_hash": "63bce59f39051d713c668c4d3414b947"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\relay\\api-proxy.ts": {
+    "mtime": 1779511914.4673474,
+    "ast_hash": "410fb2876e71ebe94d8471698e3c44c5",
+    "semantic_hash": "410fb2876e71ebe94d8471698e3c44c5"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\relay\\auto-start.ts": {
+    "mtime": 1779511914.4673474,
+    "ast_hash": "b3579cf25f382b88b34e047a8967e808",
+    "semantic_hash": "b3579cf25f382b88b34e047a8967e808"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\relay\\server.ts": {
+    "mtime": 1779511914.4673474,
+    "ast_hash": "6450967396f59d7c2de71f9bca1f9053",
+    "semantic_hash": "6450967396f59d7c2de71f9bca1f9053"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\types\\index.ts": {
+    "mtime": 1779511914.4683485,
+    "ast_hash": "587fd3367edb7c16435911e3984f4868",
+    "semantic_hash": "587fd3367edb7c16435911e3984f4868"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\types\\session.ts": {
+    "mtime": 1779511914.4683485,
+    "ast_hash": "c6cf22c33b2f77f627868de8bb3ff5dc",
+    "semantic_hash": "c6cf22c33b2f77f627868de8bb3ff5dc"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\test\\cli-json.test.ts": {
+    "mtime": 1779511914.469347,
+    "ast_hash": "2650e1adf4f607f87b95f14ba47d600d",
+    "semantic_hash": "2650e1adf4f607f87b95f14ba47d600d"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\test\\setup.test.ts": {
+    "mtime": 1779511914.469347,
+    "ast_hash": "ccc553d09525c3417326745b8f942b8b",
+    "semantic_hash": "ccc553d09525c3417326745b8f942b8b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\test\\task-steps.test.ts": {
+    "mtime": 1779511914.469347,
+    "ast_hash": "2d7de137bb7f6209a6a02d374015421c",
+    "semantic_hash": "2d7de137bb7f6209a6a02d374015421c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\test\\test-followup.ts": {
+    "mtime": 1779511914.4703467,
+    "ast_hash": "6ba04b4fbf64d5ecadc985b98921ddef",
+    "semantic_hash": "6ba04b4fbf64d5ecadc985b98921ddef"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\test\\test-live.ts": {
+    "mtime": 1779511914.4703467,
+    "ast_hash": "3baeecd995834eb1a157bab542ed5c34",
+    "semantic_hash": "3baeecd995834eb1a157bab542ed5c34"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\onboarding\\index.html": {
+    "mtime": 1779511914.487346,
+    "ast_hash": "f6ca22827fb2b91e2ee5d4084e68a604",
+    "semantic_hash": "f6ca22827fb2b91e2ee5d4084e68a604"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\src\\sidepanel-preact\\index.html": {
+    "mtime": 1779511914.4923453,
+    "ast_hash": "dad29933044f2ccab9fb1bc4da7963a3",
+    "semantic_hash": "dad29933044f2ccab9fb1bc4da7963a3"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\ARCHITECTURE.md": {
+    "mtime": 1779511914.4163795,
+    "ast_hash": "c28e2bddf8ee0ddbabba282cba27434b",
+    "semantic_hash": "c28e2bddf8ee0ddbabba282cba27434b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\README.md": {
+    "mtime": 1779511914.4173725,
+    "ast_hash": "ec1edf93f47a6d662c85980b36a17390",
+    "semantic_hash": "ec1edf93f47a6d662c85980b36a17390"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\dashboard\\index.html": {
+    "mtime": 1779511914.4173725,
+    "ast_hash": "0ab58ced972b7ef890313a1039242091",
+    "semantic_hash": "0ab58ced972b7ef890313a1039242091"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\devhunt.org.md": {
+    "mtime": 1779511914.4473443,
+    "ast_hash": "017e65d3c64b3d6931582afe82d6c4d5",
+    "semantic_hash": "017e65d3c64b3d6931582afe82d6c4d5"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\example.com.md": {
+    "mtime": 1779511914.4473443,
+    "ast_hash": "b4e3017e87236bdf69284a73addd1730",
+    "semantic_hash": "b4e3017e87236bdf69284a73addd1730"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\google.com.md": {
+    "mtime": 1779511914.4483447,
+    "ast_hash": "ab00228ada0aadc81f5713cf0f6723f4",
+    "semantic_hash": "ab00228ada0aadc81f5713cf0f6723f4"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\httpbin.org.md": {
+    "mtime": 1779511914.4483447,
+    "ast_hash": "9d50ae45115b9a88d3e9f2e26d607bc8",
+    "semantic_hash": "9d50ae45115b9a88d3e9f2e26d607bc8"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\news.ycombinator.com.md": {
+    "mtime": 1779511914.4483447,
+    "ast_hash": "9c3022908692033045334ed9d800076b",
+    "semantic_hash": "9c3022908692033045334ed9d800076b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\knowledge\\sites\\wikipedia.org.md": {
+    "mtime": 1779511914.4483447,
+    "ast_hash": "e85147d4edb876469d0505223e81ce23",
+    "semantic_hash": "e85147d4edb876469d0505223e81ce23"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\README.md": {
+    "mtime": 1779511914.451344,
+    "ast_hash": "2c2abb12e2aec82b2da85c81f22c8fac",
+    "semantic_hash": "2c2abb12e2aec82b2da85c81f22c8fac"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\a11y-auditor\\SKILL.md": {
+    "mtime": 1779511914.451344,
+    "ast_hash": "45d90c51560e9254409c0c0e63972b9c",
+    "semantic_hash": "45d90c51560e9254409c0c0e63972b9c"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\competitor-monitor\\SKILL.md": {
+    "mtime": 1779511914.4523425,
+    "ast_hash": "df9da4a9ba5c0892210db9991bdb333a",
+    "semantic_hash": "df9da4a9ba5c0892210db9991bdb333a"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\data-extractor\\SKILL.md": {
+    "mtime": 1779511914.4523425,
+    "ast_hash": "3943ee6ef11e4396e6235dccf768cdc3",
+    "semantic_hash": "3943ee6ef11e4396e6235dccf768cdc3"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\e2e-tester\\SKILL.md": {
+    "mtime": 1779511914.4533436,
+    "ast_hash": "776f0184433d87056f87da9a636cdaee",
+    "semantic_hash": "776f0184433d87056f87da9a636cdaee"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\hanzi-browse\\SKILL.md": {
+    "mtime": 1779511914.4533436,
+    "ast_hash": "6f7c8526abc9ac871b53a8a99df28a95",
+    "semantic_hash": "6f7c8526abc9ac871b53a8a99df28a95"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\job-applier\\SKILL.md": {
+    "mtime": 1779511914.4543474,
+    "ast_hash": "f5bef11fc68759e0acaf753134bd4060",
+    "semantic_hash": "f5bef11fc68759e0acaf753134bd4060"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\linkedin-prospector\\SKILL.md": {
+    "mtime": 1779511914.4553459,
+    "ast_hash": "ec3fd78b5339a6950bd1d51232de352b",
+    "semantic_hash": "ec3fd78b5339a6950bd1d51232de352b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\seo-checker\\SKILL.md": {
+    "mtime": 1779511914.4553459,
+    "ast_hash": "a04eead086e817d47626f75c8b293e08",
+    "semantic_hash": "a04eead086e817d47626f75c8b293e08"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\social-poster\\SKILL.md": {
+    "mtime": 1779511914.4563432,
+    "ast_hash": "d9f15aa6ff3bc3d402e599bdf090688b",
+    "semantic_hash": "d9f15aa6ff3bc3d402e599bdf090688b"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\skills\\x-marketer\\SKILL.md": {
+    "mtime": 1779511914.4573429,
+    "ast_hash": "7420cd4741bd069ca7a4df533abcd41f",
+    "semantic_hash": "7420cd4741bd069ca7a4df533abcd41f"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\templates\\pair-self.html": {
+    "mtime": 1779511914.4663496,
+    "ast_hash": "7240523cd4e4900ee0b82bf6e4a653e0",
+    "semantic_hash": "7240523cd4e4900ee0b82bf6e4a653e0"
+  },
+  "D:\\Code\\Git\\job_apply\\job-auto-apply\\server\\src\\managed\\templates\\pair.html": {
+    "mtime": 1779511914.4673474,
+    "ast_hash": "f5ad37143c7de9fd732e2b69b167d929",
+    "semantic_hash": "f5ad37143c7de9fd732e2b69b167d929"
+  }
+}

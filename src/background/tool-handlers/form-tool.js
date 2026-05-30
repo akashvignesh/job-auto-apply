@@ -6,6 +6,7 @@
 
 import { ensureDebugger, sendDebuggerCommand } from '../managers/debugger-manager.js';
 import { PROFILE_FOLDER } from '../modules/profile-path.js';
+import { _peekRefMeta } from '../dom-service/element-resolver.js';
 
 const NATIVE_HOST_NAME = 'com.hanzi_browse.oauth_host';
 
@@ -145,6 +146,21 @@ export async function handleFormInput(toolInput, deps) {
     // This is informational only and doesn't block the action
     if (toolInput.value.match(/^(test|demo|sample|example|fake|placeholder)/i)) {
       log?.('[GROUNDING]', `form_input value may be fabricated: "${toolInput.value.slice(0, 40)}"`);
+    }
+  }
+
+  // Playwright actionability — refuse form_input on disabled or readonly
+  // controls. Without this the native-setter write below "succeeds" (no
+  // exception) but React rejects the value on the next render and the field
+  // reverts. The 7.4 post-commit verification catches the revert, but doing it
+  // here saves a CDP round-trip and surfaces a clearer cause to the LLM.
+  if (toolInput.ref) {
+    const meta = _peekRefMeta(tabId, toolInput.ref);
+    if (meta?.disabled) {
+      return `Error: form_input on "${meta.label || meta.role || meta.tag}" (ref ${toolInput.ref}) is blocked — element is DISABLED. Check why (a parent fieldset disabled, a feature flag, or unmet preconditions) before re-attempting.`;
+    }
+    if (meta?.readonly) {
+      return `Error: form_input on "${meta.label || meta.role || meta.tag}" (ref ${toolInput.ref}) is blocked — element is READONLY. The page wrote this value itself; you cannot overwrite it via form_input. Use computer/scroll_to and verify the existing value matches your profile, or escalate if it doesn't.`;
     }
   }
 

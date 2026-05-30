@@ -1,4 +1,4 @@
-import { d, y, q, P as PROVIDERS, A, u, S, R } from "./providers.js";
+import { d, y, q, P as PROVIDERS, A, u, S, T, R } from "./providers.js";
 function serializeModelConfig(model) {
   if (!model) return null;
   return {
@@ -225,27 +225,38 @@ function useConfig() {
     logoutCLI
   };
 }
+const EMPTY_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+  apiCalls: 0
+};
 function useChat() {
   const [messages, setMessages] = d([]);
   const [isRunning, setIsRunning] = d(false);
   const [attachedImages, setAttachedImages] = d([]);
   const [sessionTabGroupId, setSessionTabGroupId] = d(null);
   const [pendingPlan, setPendingPlan] = d(null);
+  const [taskUsage, setTaskUsage] = d(EMPTY_USAGE);
+  const [sessionUsage, setSessionUsage] = d(EMPTY_USAGE);
   const [pendingStep, setPendingStep] = d(null);
   const currentStepsRef = A([]);
+  const stepStartRef = A(0);
   const streamingTextRef = A("");
   const [_streamingMessageId, setStreamingMessageId] = d(null);
   y(() => {
     const listener = (message) => {
+      if (message.usage) setTaskUsage(message.usage);
       switch (message.type) {
         case "TASK_UPDATE":
           handleTaskUpdate(message.update);
           break;
         case "TASK_COMPLETE":
-          handleTaskComplete(message.result);
+          handleTaskComplete(message.result, message.usage);
           break;
         case "TASK_ERROR":
-          handleTaskError(message.error);
+          handleTaskError(message.error, message.usage);
           break;
         case "PLAN_APPROVAL_REQUIRED":
           setPendingPlan(message.plan);
@@ -290,13 +301,17 @@ function useChat() {
       });
     } else if (update.status === "executing") {
       setMessages((prev) => prev.filter((m) => m.type !== "thinking"));
-      setPendingStep({ tool: update.tool, input: update.input });
+      stepStartRef.current = Date.now();
+      setPendingStep({ tool: update.tool, input: update.input, startedAt: stepStartRef.current });
     } else if (update.status === "executed") {
+      const durationMs = stepStartRef.current > 0 ? Date.now() - stepStartRef.current : null;
       currentStepsRef.current = [...currentStepsRef.current, {
         tool: update.tool,
         input: (pendingStep == null ? void 0 : pendingStep.input) || update.input,
-        result: update.result
+        result: update.result,
+        durationMs
       }];
+      stepStartRef.current = 0;
       setPendingStep(null);
     } else if (update.status === "message" && update.text) {
       const stepsForMessage = [...currentStepsRef.current];
@@ -315,20 +330,31 @@ function useChat() {
       streamingTextRef.current = "";
     }
   }, [pendingStep]);
-  const handleTaskComplete = q((result) => {
+  const accumulateSession = q((finalTaskUsage) => {
+    if (!finalTaskUsage) return;
+    setSessionUsage((prev) => ({
+      inputTokens: prev.inputTokens + (finalTaskUsage.inputTokens || 0),
+      outputTokens: prev.outputTokens + (finalTaskUsage.outputTokens || 0),
+      cacheCreationTokens: prev.cacheCreationTokens + (finalTaskUsage.cacheCreationTokens || 0),
+      cacheReadTokens: prev.cacheReadTokens + (finalTaskUsage.cacheReadTokens || 0),
+      apiCalls: prev.apiCalls + (finalTaskUsage.apiCalls || 0)
+    }));
+  }, []);
+  const handleTaskComplete = q((result, finalUsage) => {
     setIsRunning(false);
     setMessages((prev) => prev.filter((m) => m.type !== "thinking"));
     setStreamingMessageId(null);
     streamingTextRef.current = "";
-    if (result.message && !result.success) {
+    accumulateSession(finalUsage);
+    if (result && result.message && !result.success) {
       setMessages((prev) => [...prev, {
         id: Date.now(),
         type: "system",
         text: result.message
       }]);
     }
-  }, []);
-  const handleTaskError = q((error) => {
+  }, [accumulateSession]);
+  const handleTaskError = q((error, finalUsage) => {
     setIsRunning(false);
     setMessages((prev) => {
       const filtered = prev.filter((m) => m.type !== "thinking" && m.type !== "streaming");
@@ -340,7 +366,8 @@ function useChat() {
     });
     setStreamingMessageId(null);
     streamingTextRef.current = "";
-  }, []);
+    accumulateSession(finalUsage);
+  }, [accumulateSession]);
   const sendMessage = q(async (text) => {
     if (!text.trim() || isRunning) return;
     const userMessage = {
@@ -354,6 +381,7 @@ function useChat() {
     setAttachedImages([]);
     currentStepsRef.current = [];
     setPendingStep(null);
+    setTaskUsage(EMPTY_USAGE);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) {
       setMessages((prev) => [...prev, {
@@ -396,6 +424,8 @@ function useChat() {
     setStreamingMessageId(null);
     streamingTextRef.current = "";
     setSessionTabGroupId(null);
+    setTaskUsage(EMPTY_USAGE);
+    setSessionUsage(EMPTY_USAGE);
     chrome.runtime.sendMessage({ type: "CLEAR_CONVERSATION" }).catch(() => {
     });
   }, []);
@@ -425,6 +455,8 @@ function useChat() {
     attachedImages,
     pendingStep,
     pendingPlan,
+    taskUsage,
+    sessionUsage,
     // Actions
     sendMessage,
     stopTask,
@@ -646,6 +678,22 @@ function formatStepResult(result) {
   }
   return "";
 }
+function CopyButton({ text }) {
+  const [copied, setCopied] = d(false);
+  const onClick = (e) => {
+    e.stopPropagation();
+    try {
+      navigator.clipboard.writeText(text || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1100);
+    } catch {
+    }
+  };
+  return /* @__PURE__ */ u("button", { class: `copy-btn ${copied ? "copied" : ""}`, onClick, title: copied ? "Copied" : "Copy message", "aria-label": "Copy message", children: copied ? /* @__PURE__ */ u("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", children: /* @__PURE__ */ u("polyline", { points: "20 6 9 17 4 12" }) }) : /* @__PURE__ */ u("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", children: [
+    /* @__PURE__ */ u("rect", { x: "9", y: "9", width: "13", height: "13", rx: "2", ry: "2" }),
+    /* @__PURE__ */ u("path", { d: "M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" })
+  ] }) });
+}
 function Message({ message }) {
   const { type, text, images } = message;
   if (type === "thinking") {
@@ -684,7 +732,8 @@ function Message({ message }) {
           class: "content",
           dangerouslySetInnerHTML: { __html: formatMarkdown(text) }
         }
-      )
+      ),
+      text && /* @__PURE__ */ u(CopyButton, { text })
     ] });
   }
   if (type === "error") {
@@ -733,13 +782,23 @@ function StepsSection({ steps, pendingStep }) {
     ] })
   ] });
 }
+function formatDuration(ms) {
+  if (ms == null || ms <= 0) return null;
+  if (ms < 1e3) return `${ms}ms`;
+  if (ms < 1e4) return `${(ms / 1e3).toFixed(1)}s`;
+  return `${Math.round(ms / 1e3)}s`;
+}
 function StepItem({ step, status }) {
   const description = getActionDescription(step.tool, step.input);
   const resultText = status === "completed" ? formatStepResult(step.result) : null;
+  const duration = status === "completed" ? formatDuration(step.durationMs) : null;
   return /* @__PURE__ */ u("div", { class: `step-item ${status}`, children: [
     /* @__PURE__ */ u("div", { class: `step-icon ${status === "completed" ? "success" : "pending"}`, children: status === "pending" ? /* @__PURE__ */ u("svg", { class: "spinner", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", children: /* @__PURE__ */ u("circle", { cx: "12", cy: "12", r: "10" }) }) : /* @__PURE__ */ u("span", { dangerouslySetInnerHTML: { __html: getToolIcon(step.tool) } }) }),
     /* @__PURE__ */ u("div", { class: "step-content", children: [
-      /* @__PURE__ */ u("div", { class: "step-label", children: escapeHtml(description) }),
+      /* @__PURE__ */ u("div", { class: "step-label", children: [
+        escapeHtml(description),
+        duration && /* @__PURE__ */ u("span", { class: "step-duration", title: `${step.durationMs}ms`, children: duration })
+      ] }),
       resultText && /* @__PURE__ */ u("div", { class: "step-result", children: escapeHtml(resultText) })
     ] }),
     /* @__PURE__ */ u("div", { class: "step-status", children: status === "completed" ? "✓" : "..." })
@@ -1410,7 +1469,84 @@ function EmptyState({ onSelectExample, primaryMode }) {
     ] })
   ] });
 }
+const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+function fmtTokens(n) {
+  if (n == null || n === 0) return "0";
+  if (n < 1e3) return String(n);
+  if (n < 1e6) return NUMBER_FORMAT.format(n / 1e3) + "K";
+  return NUMBER_FORMAT.format(n / 1e6) + "M";
+}
+function fmtCost(usd) {
+  if (usd <= 0) return "$0";
+  if (usd < 0.01) return "<$0.01";
+  if (usd < 1) return "$" + usd.toFixed(2);
+  return "$" + usd.toFixed(2);
+}
+const PRICING = {
+  "claude-opus-4-7": { in: 15, out: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4-6": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4-5": { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  "claude-opus-4-5-20250514": { in: 15, out: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4-20250514": { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4-20250414": { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  default: { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 }
+};
+function estimateCost(usage, modelId) {
+  if (!usage) return 0;
+  const p = PRICING[modelId] || PRICING.default;
+  const freshIn = Math.max(0, (usage.inputTokens || 0) - (usage.cacheReadTokens || 0) - (usage.cacheCreationTokens || 0));
+  return freshIn / 1e6 * p.in + (usage.outputTokens || 0) / 1e6 * p.out + (usage.cacheReadTokens || 0) / 1e6 * p.cacheRead + (usage.cacheCreationTokens || 0) / 1e6 * p.cacheWrite;
+}
+function UsageBar({ taskUsage, sessionUsage, isRunning, modelId }) {
+  const [showSession, setShowSession] = d(false);
+  const active = showSession ? sessionUsage : taskUsage;
+  const cacheHitRate = T(() => {
+    const denom = active.inputTokens || 0;
+    if (denom === 0) return 0;
+    return (active.cacheReadTokens || 0) / denom * 100;
+  }, [active]);
+  const cost = T(() => estimateCost(active, modelId), [active, modelId]);
+  const isEmpty = !active || active.apiCalls === 0 && active.inputTokens === 0 && active.outputTokens === 0;
+  if (isEmpty && !isRunning) return null;
+  const tip = showSession ? "Showing session totals (all tasks since panel opened). Click to switch." : "Showing current task totals. Click to switch to session totals.";
+  return /* @__PURE__ */ u("div", { class: "usage-bar", role: "status", "aria-live": "polite", title: tip, children: [
+    /* @__PURE__ */ u(
+      "button",
+      {
+        type: "button",
+        class: `usage-toggle ${showSession ? "session" : "task"}`,
+        onClick: () => setShowSession((s) => !s),
+        "aria-pressed": showSession,
+        children: showSession ? "session" : "task"
+      }
+    ),
+    /* @__PURE__ */ u("span", { class: `usage-chip ${isRunning && !showSession ? "live" : ""}`, children: [
+      /* @__PURE__ */ u("span", { class: "usage-num", children: active.apiCalls || 0 }),
+      /* @__PURE__ */ u("span", { class: "usage-label", children: "calls" })
+    ] }),
+    /* @__PURE__ */ u("span", { class: "usage-chip", children: [
+      /* @__PURE__ */ u("span", { class: "usage-label", children: "in" }),
+      /* @__PURE__ */ u("span", { class: "usage-num", children: fmtTokens(active.inputTokens) }),
+      (active.cacheReadTokens || 0) > 0 && /* @__PURE__ */ u("span", { class: "usage-sub", title: `${fmtTokens(active.cacheReadTokens)} cache reads — billed at ~10% of fresh input`, children: [
+        /* @__PURE__ */ u("span", { class: "usage-cache", children: fmtTokens(active.cacheReadTokens) }),
+        /* @__PURE__ */ u("span", { class: "usage-cache-pct", children: [
+          Math.round(cacheHitRate),
+          "%"
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ u("span", { class: "usage-chip", children: [
+      /* @__PURE__ */ u("span", { class: "usage-label", children: "out" }),
+      /* @__PURE__ */ u("span", { class: "usage-num", children: fmtTokens(active.outputTokens) })
+    ] }),
+    /* @__PURE__ */ u("span", { class: "usage-chip usage-cost", title: "Estimated provider cost. Always $0 on Claude OAuth (subscription).", children: [
+      /* @__PURE__ */ u("span", { class: "usage-num", children: fmtCost(cost) }),
+      /* @__PURE__ */ u("span", { class: "usage-label", children: "est" })
+    ] })
+  ] });
+}
 function App() {
+  var _a, _b;
   const [isSettingsOpen, setIsSettingsOpen] = d(false);
   const [suggestedText, setSuggestedText] = d("");
   const [isManaged, setIsManaged] = d(false);
@@ -1486,6 +1622,15 @@ function App() {
         onModelSelect: config.selectModel,
         onNewChat: chat.clearChat,
         onOpenSettings: () => setIsSettingsOpen(true)
+      }
+    ),
+    /* @__PURE__ */ u(
+      UsageBar,
+      {
+        taskUsage: chat.taskUsage,
+        sessionUsage: chat.sessionUsage,
+        isRunning: chat.isRunning,
+        modelId: ((_a = config.currentModel) == null ? void 0 : _a.id) || ((_b = config.currentModel) == null ? void 0 : _b.modelId) || ""
       }
     ),
     /* @__PURE__ */ u("div", { class: "messages-container", children: !hasMessages ? /* @__PURE__ */ u(EmptyState, { onSelectExample: setSuggestedText, primaryMode: config.onboarding.primaryMode }) : /* @__PURE__ */ u(

@@ -8,13 +8,36 @@
 export const AGENT_TOOLS = [
     {
         name: "read_page",
-        description: `Get a rich DOM tree of the page via Chrome DevTools Protocol. Returns interactive elements with numeric backendNodeId references (e.g., [42]<button>Submit</button>). IMPORTANT: Only use element IDs from the CURRENT output — IDs change between calls. Pierces shadow DOM and iframes automatically.`,
+        description: `Read the current page in one of five modes. Default mode is "summary" — a compact ~1-2K view with the fields, buttons, errors, blocker, and next safe action. Use "full" only when you genuinely need the raw DOM tree. Refs only stay valid until the page changes — re-read after navigations.
+
+Modes:
+- summary       (DEFAULT) page meta + fields + buttons + errors + blocker + next safe action.
+- actions                 interactive elements only ([ref] kind "label" state).
+- errors                  validation errors and invalid fields — after a failed submit.
+- form_summary            required-field fill state + submit button state.
+- full                    raw DOM tree (the previous default).
+- region                  subtree of a single ref (provide ref).
+
+Screenshots are budgeted: <=2 per page-fingerprint and <=1 within ~1.5s.`,
         input_schema: {
             type: "object",
             properties: {
+                mode: {
+                    type: "string",
+                    enum: ["summary", "actions", "errors", "form_summary", "full", "region"],
+                    description: 'Output mode (default: "summary"). Use "full" only when summary/actions is insufficient.',
+                },
+                ref: {
+                    type: "string",
+                    description: 'Required when mode="region". The ref to scope output to.',
+                },
                 max_chars: {
                     type: "number",
-                    description: "Maximum characters for output (default: 50000).",
+                    description: 'Only applied to mode="full" or "region" (default: 20000).',
+                },
+                screenshot: {
+                    type: "boolean",
+                    description: "Include a screenshot. Subject to per-fingerprint budget.",
                 },
             },
             required: [],
@@ -149,6 +172,64 @@ export const AGENT_TOOLS = [
                 },
             },
             required: ["action", "text"],
+        },
+    },
+    {
+        name: "file_upload",
+        description: `Upload a file to a file input element on the page. Use this for resume/CV and cover letter uploads — NEVER click the file input directly. Resolves shadow DOM and iframes automatically.`,
+        input_schema: {
+            type: "object",
+            properties: {
+                ref: {
+                    type: "string",
+                    description: "Element reference for the file input from read_page.",
+                },
+                filePath: {
+                    type: "string",
+                    description: "Absolute or relative path to the file to upload.",
+                },
+            },
+            required: ["ref", "filePath"],
+        },
+    },
+    // Phase B — Webwright-inspired tools (mirrored in src/tools/definitions.js).
+    {
+        name: "run_script",
+        description: `Execute MULTIPLE action steps in ONE tool call. Prefer this whenever you have ≥3 form_input or click steps planned with no read_page between them. Each action is {tool, input} where tool ∈ {form_input, computer, file_upload, navigate}. Results are reported per-action.`,
+        input_schema: {
+            type: "object",
+            properties: {
+                actions: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            tool: { type: "string" },
+                            input: { type: "object" },
+                        },
+                        required: ["tool", "input"],
+                    },
+                },
+                stopOnError: { type: "boolean" },
+            },
+            required: ["actions"],
+        },
+    },
+    {
+        name: "verify_action",
+        description: `Cheap CDP-based check that an action actually changed the page (URL changed, text appeared, ref disappeared, modal appeared). Use after Submit / Save and Continue / navigations instead of a full read_page when you only need yes/no.`,
+        input_schema: {
+            type: "object",
+            properties: {
+                expect: {
+                    type: "string",
+                    enum: ["navigated", "text-appeared", "ref-disappeared", "modal-present"],
+                },
+                hint: { type: "string" },
+                timeoutMs: { type: "number" },
+                tabId: { type: "number" },
+            },
+            required: ["expect"],
         },
     },
 ];

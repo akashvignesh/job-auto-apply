@@ -35,6 +35,8 @@
  * Storage caps: 200 rows, LRU-evicted by `lastSuccessAt`.
  */
 
+import { compactSteps } from './plan-recorder.js';
+
 const DB_NAME = 'hanzi-learned-plans';
 const DB_VERSION = 2;
 const STORE_NAME = 'plans';
@@ -126,6 +128,51 @@ export async function getMostRecentPlanForDomain(domain) {
 }
 
 /**
+ * Return a small ranked set of plans for a host. This keeps soft-domain
+ * prompt injection bounded while still exposing alternatives when the current
+ * page has not produced a fingerprint yet.
+ *
+ * @param {string} domain
+ * @param {{pathname?: string, taskText?: string, limit?: number}} [opts]
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getRelevantPlansForDomain(domain, opts = {}) {
+  if (!domain) return [];
+  try {
+    const db = await openDb();
+    const idx = tx(db, 'readonly').index('originDomains');
+    const rows = await asPromise(idx.getAll(domain.toLowerCase()));
+    if (!rows || rows.length === 0) return [];
+
+    const pathTerms = tokenize(`${opts.pathname || ''} ${opts.taskText || ''}`);
+    const scored = rows.map(row => {
+      const haystack = tokenize([
+        row.exemplarUrl || '',
+        row.taskKind || '',
+        ...(Array.isArray(row.plan) ? row.plan.map(s => `${s.label || ''} ${s.role || ''} ${s.tool || ''}`) : []),
+      ].join(' '));
+      let overlap = 0;
+      for (const term of pathTerms) {
+        if (haystack.has(term)) overlap++;
+      }
+      return {
+        row,
+        score: (row.status === 'verified' ? 100000 : 0)
+          + (overlap * 1000)
+          + ((row.successCount || 0) * 100)
+          + ((row.draftCount || 0) * 10)
+          + Math.floor(Math.max(row.lastSuccessAt || 0, row.lastDraftAt || 0) / 86400000),
+      };
+    });
+
+    scored.sort((a, b) => b.score - a.score || (b.row.lastSuccessAt || 0) - (a.row.lastSuccessAt || 0));
+    return scored.slice(0, Math.max(1, Math.min(Number(opts.limit) || 5, 5))).map(s => s.row);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * UPSERT-and-merge a per-page plan.
  *
  * Behavior:
@@ -144,26 +191,31 @@ export async function getMostRecentPlanForDomain(domain) {
  * @param {string} [params.modelVersion] model id
  * @param {string} [params.taskKind]     e.g. 'application'
  */
-export async function upsertPlanForPage({ domain, fingerprint, steps, startUrl, modelVersion, taskKind }) {
-  if (!domain || !fingerprint || !Array.isArray(steps) || steps.length === 0) return;
+export async function upsertPlanForPage({ domain, fingerprint, steps, startUrl, modelVersion, taskKind, status = 'verified' }) {
+  const cleanSteps = compactSteps(steps);
+  if (!domain || !fingerprint || cleanSteps.length === 0) return;
   try {
     const db = await openDb();
     const store = tx(db, 'readwrite');
     const existing = await asPromise(store.get(fingerprint));
     const now = Date.now();
     const dom = domain.toLowerCase();
+    const isVerified = status !== 'draft';
 
     if (!existing) {
       const row = {
         key: fingerprint,
         formFingerprint: fingerprint,
         originDomains: [dom],
-        plan: steps.map((s) => _seedStepWithVariant(s, dom)),
+        plan: cleanSteps.map((s) => _seedStepWithVariant(s, dom)),
         taskKind: taskKind || 'generic',
         modelVersion: modelVersion || 'unknown',
-        successCount: 1,
-        firstSuccessAt: now,
-        lastSuccessAt: now,
+        status: isVerified ? 'verified' : 'draft',
+        successCount: isVerified ? 1 : 0,
+        draftCount: isVerified ? 0 : 1,
+        firstSuccessAt: isVerified ? now : null,
+        lastSuccessAt: isVerified ? now : 0,
+        lastDraftAt: isVerified ? null : now,
         exemplarUrl: startUrl || '',
       };
       await asPromise(store.put(row));
@@ -172,15 +224,19 @@ export async function upsertPlanForPage({ domain, fingerprint, steps, startUrl, 
       // remain even when the new origin's recording differs slightly.
       const originDomains = Array.isArray(existing.originDomains) ? existing.originDomains.slice() : [];
       if (!originDomains.includes(dom)) originDomains.push(dom);
-      const mergedPlan = mergeStepLists(existing.plan || [], steps, dom);
+      const mergedPlan = mergeStepLists(existing.plan || [], cleanSteps, dom);
       const row = {
         ...existing,
         originDomains,
         plan: mergedPlan,
         taskKind: existing.taskKind || taskKind || 'generic',
         modelVersion: modelVersion || existing.modelVersion || 'unknown',
-        successCount: (existing.successCount || 0) + 1,
-        lastSuccessAt: now,
+        status: isVerified ? 'verified' : (existing.status || 'draft'),
+        successCount: isVerified ? (existing.successCount || 0) + 1 : (existing.successCount || 0),
+        draftCount: isVerified ? (existing.draftCount || 0) : (existing.draftCount || 0) + 1,
+        firstSuccessAt: isVerified ? (existing.firstSuccessAt || now) : (existing.firstSuccessAt || null),
+        lastSuccessAt: isVerified ? now : (existing.lastSuccessAt || 0),
+        lastDraftAt: isVerified ? (existing.lastDraftAt || null) : now,
         exemplarUrl: startUrl || existing.exemplarUrl || '',
       };
       await asPromise(store.put(row));
@@ -207,6 +263,84 @@ export async function savePlan({ domain, formFingerprint, plan, modelVersion, ta
     modelVersion,
     taskKind,
   });
+}
+
+export async function recordPlanFailure({ domain, fingerprint, step, error, startUrl, taskKind }) {
+  if (!domain || !fingerprint || !step || !step.tool) return;
+  try {
+    const db = await openDb();
+    const store = tx(db, 'readwrite');
+    const existing = await asPromise(store.get(fingerprint));
+    const now = Date.now();
+    const dom = domain.toLowerCase();
+    const failure = {
+      tool: step.tool || '',
+      action: step.action || '',
+      label: step.label || '',
+      role: step.role || '',
+      selectorHint: step.selectorHint || step.refHint || '',
+      valueKind: step.valueKind || '',
+      value: step.value != null ? truncate(step.value, 80) : '',
+      error: truncate(error || 'failed', 180),
+      count: 1,
+      lastFailedAt: now,
+    };
+
+    if (!existing) {
+      await asPromise(store.put({
+        key: fingerprint,
+        formFingerprint: fingerprint,
+        originDomains: [dom],
+        plan: [],
+        mistakes: [failure],
+        taskKind: taskKind || 'generic',
+        modelVersion: 'unknown',
+        status: 'draft',
+        successCount: 0,
+        draftCount: 0,
+        firstSuccessAt: null,
+        lastSuccessAt: 0,
+        lastDraftAt: null,
+        exemplarUrl: startUrl || '',
+      }));
+    } else {
+      const originDomains = Array.isArray(existing.originDomains) ? existing.originDomains.slice() : [];
+      if (!originDomains.includes(dom)) originDomains.push(dom);
+      await asPromise(store.put({
+        ...existing,
+        originDomains,
+        mistakes: mergeMistakes(existing.mistakes || [], failure),
+        taskKind: existing.taskKind || taskKind || 'generic',
+        exemplarUrl: startUrl || existing.exemplarUrl || '',
+      }));
+    }
+  } catch (e) {
+    if (typeof console !== 'undefined') {
+      console.warn('[LearnedPlans] recordPlanFailure failed:', e && e.message);
+    }
+  }
+}
+
+function mergeMistakes(oldMistakes, failure) {
+  const sig = (m) => [
+    m.tool || '',
+    m.action || '',
+    (m.label || '').toLowerCase(),
+    m.role || '',
+    m.selectorHint || '',
+    m.valueKind || '',
+    m.value || '',
+  ].join('::');
+  const result = oldMistakes.slice(-20).map(m => ({ ...m }));
+  const idx = result.findIndex(m => sig(m) === sig(failure));
+  if (idx >= 0) {
+    result[idx].count = (result[idx].count || 1) + 1;
+    result[idx].error = failure.error || result[idx].error;
+    result[idx].lastFailedAt = failure.lastFailedAt;
+  } else {
+    result.push(failure);
+  }
+  return result.sort((a, b) => (b.lastFailedAt || 0) - (a.lastFailedAt || 0)).slice(0, 20);
 }
 
 function _seedStepWithVariant(step, origin) {
@@ -321,22 +455,51 @@ export async function listAllPlans() {
  * @returns {string}
  */
 export function renderPlanForPrompt(row) {
-  if (!row || !Array.isArray(row.plan) || row.plan.length === 0) return '';
-  const lines = row.plan.map((step, i) => {
+  if (!row) return '';
+  const plan = Array.isArray(row.plan) ? row.plan : [];
+  const mistakes = Array.isArray(row.mistakes) ? row.mistakes : [];
+  if (plan.length === 0 && mistakes.length === 0) return '';
+
+  const lines = plan.map((step, i) => {
     const valueHint = step.valueKind
       ? ` value=<${step.valueKind}>`
       : (step.value != null ? ` value="${truncate(step.value, 40)}"` : '');
     const labelPart = step.label ? ` label="${truncate(step.label, 60)}"` : '';
     const rolePart = step.role ? ` role=${step.role}` : '';
     const variants = Array.isArray(step.variants) ? step.variants : [];
+    const primaryHint = variants[0]?.selectorHint ? ` selector="${truncate(variants[0].selectorHint, 80)}"` : '';
     const altCount = Math.max(0, variants.length - 1);
     const altNote = altCount > 0 ? ` (+${altCount} variant${altCount === 1 ? '' : 's'})` : '';
     const actionPart = step.action ? `[${step.action}]` : '';
-    return `${i + 1}. ${step.tool}${actionPart}${labelPart}${rolePart}${valueHint}${altNote}`;
+    return `${i + 1}. ${step.tool}${actionPart}${labelPart}${rolePart}${valueHint}${primaryHint}${altNote}`;
   });
   const origins = Array.isArray(row.originDomains) ? row.originDomains.join(',') : (row.domain || '');
-  const meta = `origins=${origins} successes=${row.successCount} kind=${row.taskKind || 'generic'}`;
-  return `${meta}\n${lines.join('\n')}`;
+  const status = row.status || ((row.successCount || 0) > 0 ? 'verified' : 'draft');
+  const meta = `status=${status} origins=${origins} successes=${row.successCount || 0} drafts=${row.draftCount || 0} kind=${row.taskKind || 'generic'}`;
+  const out = [meta];
+  if (lines.length > 0) {
+    out.push(status === 'verified' ? 'WORKED STEPS:' : 'PARTIAL STEPS FROM UNFINISHED RUN - verify live page before using:');
+    out.push(...lines);
+  }
+  if (mistakes.length > 0) {
+    out.push('AVOID REPEATING THESE FAILED ACTIONS:');
+    mistakes.slice(0, 8).forEach((m, i) => {
+      const label = m.label ? ` label="${truncate(m.label, 60)}"` : '';
+      const role = m.role ? ` role=${m.role}` : '';
+      const selector = m.selectorHint ? ` selector="${truncate(m.selectorHint, 80)}"` : '';
+      const action = m.action ? `[${m.action}]` : '';
+      out.push(`${i + 1}. ${m.tool}${action}${label}${role}${selector} failed ${m.count || 1}x: ${truncate(m.error || 'unknown error', 120)}`);
+    });
+  }
+  return out.join('\n');
+}
+
+function tokenize(text) {
+  const set = new Set();
+  String(text || '').toLowerCase().split(/[^a-z0-9]+/).forEach(t => {
+    if (t.length >= 3) set.add(t);
+  });
+  return set;
 }
 
 function truncate(s, n) {
